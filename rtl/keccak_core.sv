@@ -182,6 +182,8 @@ module keccak_core (
     wire [BYTE_ABSORB_WIDTH-1:0]    KAU_BYTES_ABSORBED_I;
     wire [DWIDTH-1:0]               KAU_MSG_I;
     wire [KEEP_WIDTH-1:0]           KAU_KEEP_I;
+    wire                            KAU_PAD_EN_I;
+    wire [SUFFIX_WIDTH-1:0]         KAU_SUFFIX_I;
 
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KAU_STATE_ARRAY_O;
     wire [BYTE_ABSORB_WIDTH-1:0]    KAU_BYTES_ABSORBED_O;
@@ -189,13 +191,7 @@ module keccak_core (
     wire [KEEP_WIDTH-1:0]           KAU_CARRY_KEEP_O;
     wire [DWIDTH-1:0]               KAU_CARRY_OVER_O;
 
-    // Suffix Padder Unit (SPU) Module Wires
-    wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] SPU_STATE_ARRAY_I;
-    wire [RATE_WIDTH-1:0]           SPU_RATE_I;
-    wire [BYTE_ABSORB_WIDTH-1:0]    SPU_BYTES_ABSORBED_I;
-    wire [SUFFIX_WIDTH-1:0]         SPU_SUFFIX_I;
-
-    wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] SPU_STATE_ARRAY_O;
+    // Suffix Padder Unit (Collapsed into KAU)
 
     // Squeeze Output Unit (KOU) Module Wires
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KOU_STATE_ARRAY_I;
@@ -252,15 +248,17 @@ module keccak_core (
     assign KSU_ROUND_INDEX_I    = round_idx;
     assign KSU_STEP_SEL_I       = step_sel;
 
-    // 2C. KECCAK ABSORB UNIT (KAU)
+    // 2C. KECCAK ABSORB UNIT (KAU) (Now handles Optional Padding)
     // ----------------------------------------------------------
-    // Module to handle absorbing of input message
+    // Module to handle absorbing of input message and padding
     keccak_absorb_unit KAU (
         .state_array_i      (KAU_STATE_ARRAY_I),
         .rate_i             (KAU_RATE_I),
         .bytes_absorbed_i   (KAU_BYTES_ABSORBED_I),
         .msg_i              (KAU_MSG_I),
         .keep_i             (KAU_KEEP_I),
+        .pad_en_i           (KAU_PAD_EN_I),
+        .suffix_i           (KAU_SUFFIX_I),
 
         .state_array_o      (KAU_STATE_ARRAY_O),
         .bytes_absorbed_o   (KAU_BYTES_ABSORBED_O),
@@ -273,21 +271,12 @@ module keccak_core (
     assign KAU_BYTES_ABSORBED_I = bytes_absorbed;
     assign KAU_MSG_I            = has_carry_over ? { 64'b0, carry_over} : t_data_i;
     assign KAU_KEEP_I           = has_carry_over ? {  8'b0, carry_keep} : t_keep_i;
+    assign KAU_PAD_EN_I         = (state == STATE_SUFFIX_PADDING);
+    assign KAU_SUFFIX_I         = suffix;
 
     // 2D. SUFFIX PADDER UNIT (SPU)
     // ----------------------------------------------------------
-    suffix_padder_unit SPU (
-        .state_array_i    (SPU_STATE_ARRAY_I),
-        .rate_i           (SPU_RATE_I),
-        .bytes_absorbed_i (SPU_BYTES_ABSORBED_I),
-        .suffix_i         (SPU_SUFFIX_I),
-
-        .state_array_o    (SPU_STATE_ARRAY_O)
-    );
-    assign SPU_STATE_ARRAY_I    = state_array;
-    assign SPU_RATE_I           = rate;
-    assign SPU_BYTES_ABSORBED_I = bytes_absorbed;
-    assign SPU_SUFFIX_I         = suffix;
+    // Collapsed and merged into KAU logic to save Area payload!
 
     // 2E. SQUEEZE OUTPUT UNIT (KOU)
     // ----------------------------------------------------------
@@ -630,7 +619,7 @@ module keccak_core (
                         state_array <= KAU_STATE_ARRAY_O;
                     end
                     PADDING_SEL : begin
-                        state_array <= SPU_STATE_ARRAY_O;
+                        state_array <= KAU_STATE_ARRAY_O;
                     end
                     default : begin
                         state_array <= state_array;

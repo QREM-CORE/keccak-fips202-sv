@@ -33,6 +33,8 @@ module keccak_absorb_unit_tb ();
         .bytes_absorbed_i   (bytes_absorbed_i),
         .msg_i              (msg_i),
         .keep_i             (keep_i),
+        .pad_en_i           (1'b0),
+        .suffix_i           (8'h00),
         .state_array_o      (state_out),
         .bytes_absorbed_o   (bytes_absorbed_o),
         .carry_over_o       (carry_over_o),
