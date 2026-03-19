@@ -131,20 +131,23 @@ module keccak_core_tb;
 
         // Handle empty message case (Len=0)
         if (total_bytes == 0) begin
-            // Depending on protocol, send one transaction with keep=0 and last=1
             @(posedge clk);
-            while (!s_axis.tready) @(posedge clk);
             s_axis.tvalid <= 1;
             s_axis.tlast  <= 1;
             s_axis.tkeep  <= '0;
             s_axis.tdata  <= '0;
+
+            // Wait for the signals to appear on the bus, then wait for handshake
             @(posedge clk);
+            while (!s_axis.tready) @(posedge clk);
+
             s_axis.tvalid <= 0;
             s_axis.tlast  <= 0;
+            s_axis.tkeep  <= 0;
             return;
         end
 
-        // Loop until all bytes sent
+        // Loop until all bytes sent (Your main loop is completely correct!)
         while (sent_bytes < total_bytes) begin
 
             // Wait for clock edge to sample signals
@@ -172,7 +175,6 @@ module keccak_core_tb;
                 if (sent_bytes >= total_bytes) begin
                     s_axis.tlast <= 1'b1;
                 end
-
             end
         end
 
