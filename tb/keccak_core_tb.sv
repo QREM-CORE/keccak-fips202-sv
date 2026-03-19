@@ -131,15 +131,19 @@ module keccak_core_tb;
 
         // Handle empty message case (Len=0)
         if (total_bytes == 0) begin
-            @(posedge clk);
             s_axis.tvalid <= 1;
             s_axis.tlast  <= 1;
             s_axis.tkeep  <= '0;
             s_axis.tdata  <= '0;
 
-            // Wait for the signals to appear on the bus, then wait for handshake
-            @(posedge clk);
-            while (!s_axis.tready) @(posedge clk);
+            // Wait for handshake safely using negedge sampling
+            forever begin
+                @(negedge clk);
+                if (s_axis.tready) begin
+                    @(posedge clk); // Complete the handshake on the positive edge
+                    break;
+                end
+            end
 
             s_axis.tvalid <= 0;
             s_axis.tlast  <= 0;
@@ -147,40 +151,39 @@ module keccak_core_tb;
             return;
         end
 
-        // Loop until all bytes sent (Your main loop is completely correct!)
+        // Main loop for >0 bytes
         while (sent_bytes < total_bytes) begin
+            s_axis.tvalid <= 1;
+            s_axis.tdata  <= '0;
+            s_axis.tkeep  <= '0;
+            s_axis.tlast  <= 0;
 
-            // Wait for clock edge to sample signals
-            @(posedge clk);
-
-            // Flow Control: Drive if valid is low (idle) or ready is high (accepted)
-            if (!s_axis.tvalid || s_axis.tready) begin
-                s_axis.tvalid <= 1;
-                s_axis.tdata  <= '0;
-                s_axis.tkeep  <= '0;
-                s_axis.tlast  <= 0;
-
-                // Pack up to 32 bytes (BYTES_PER_BEAT) into tdata
-                // FIPS Order: Msg Byte 0 -> tdata[7:0]
-                for (k = 0; k < BYTES_PER_BEAT; k++) begin
-                    if ((sent_bytes + k) < total_bytes) begin
-                        s_axis.tdata[k*8 +: 8] <= msg_bytes[sent_bytes + k];
-                        s_axis.tkeep[k]        <= 1'b1;
-                    end
+            // Pack up to 32 bytes (BYTES_PER_BEAT) into tdata
+            for (k = 0; k < BYTES_PER_BEAT; k++) begin
+                if ((sent_bytes + k) < total_bytes) begin
+                    s_axis.tdata[k*8 +: 8] <= msg_bytes[sent_bytes + k];
+                    s_axis.tkeep[k]        <= 1'b1;
                 end
+            end
 
-                sent_bytes += BYTES_PER_BEAT;
+            sent_bytes += BYTES_PER_BEAT;
 
-                // Assert T_LAST if this is the final chunk
-                if (sent_bytes >= total_bytes) begin
-                    s_axis.tlast <= 1'b1;
+            // Assert T_LAST if this is the final chunk
+            if (sent_bytes >= total_bytes) begin
+                s_axis.tlast <= 1'b1;
+            end
+
+            // Wait for handshake safely using negedge sampling
+            forever begin
+                @(negedge clk);
+                if (s_axis.tready) begin
+                    @(posedge clk); // Complete the handshake on the positive edge
+                    break;
                 end
             end
         end
 
         // Cleanup
-        @(posedge clk);
-        while (!s_axis.tready) @(posedge clk); // Wait for final handshake if pending
         s_axis.tvalid <= 0;
         s_axis.tlast  <= 0;
         s_axis.tkeep  <= 0;
