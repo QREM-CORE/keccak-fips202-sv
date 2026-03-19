@@ -39,7 +39,7 @@ module keccak_output_unit (
     // ==========================================================
     // 2. FLATTEN STATE ARRAY AND CAST TO WORD-ALIGNED ARRAY
     // ==========================================================
-    localparam NUM_OUTPUT_WORDS = 1600 / DWIDTH;
+    localparam int NUM_OUTPUT_WORDS = 1600 / DWIDTH;
     logic [1599:0] state_linear;
     logic [NUM_OUTPUT_WORDS-1:0][DWIDTH-1:0] state_words;
 

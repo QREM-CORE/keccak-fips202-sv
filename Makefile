@@ -87,4 +87,4 @@ run_heavy_fail: $(WORK)
 
 # Clean build files
 clean:
-	rm -rf $(WORK) *.vcd transcript vsim.wlf run_*.macro
+	rm -rf $(WORK) *.vcd transcript vsim.wlf run_*.macro *.log
