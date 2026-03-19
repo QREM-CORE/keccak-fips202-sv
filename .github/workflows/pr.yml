@@ -83,17 +83,28 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive # Added this just in case your common_rtl is a submodule!
+
       - name: Setup OSS CAD Suite
         # This official action installs the latest nightly build natively
         uses: YosysHQ/setup-oss-cad-suite@v3
         with:
           # Optional but recommended: prevents GitHub API rate limiting
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run Dummy Synthesis with Slang
         # -m slang  = load the Slang plugin
         # read_slang = use Slang to parse the SystemVerilog natively
         run: |
-          yosys -m slang -p "read_slang -f rtl.f; synth"
+          # 1. Read the filelist and strip comments/empty lines
+          RAW_FILES=$(grep -v '^\#' rtl.f | grep -v '^$')
+
+          # 2. Use echo without quotes to force bash to expand the *.sv wildcards
+          RTL_FILES=$(echo $RAW_FILES)
+
+          # 3. Pass the fully expanded explicit file list to read_slang directly
+          yosys -m slang -p "read_slang $RTL_FILES; synth -top keccak_core"
 
   # --- 4. Linter ---
   lint:

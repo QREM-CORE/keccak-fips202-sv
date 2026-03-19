@@ -2,6 +2,20 @@ package keccak_pkg;
     // Misc. Bit Sizes
     parameter int BYTE_SIZE = 8;
 
+    // State Array Dimension Bit Sizes
+    parameter int LANE_SIZE = 64;
+    parameter int ROW_SIZE  = 5;
+    parameter int COL_SIZE  = 5;
+
+    // Step Map
+    parameter int STEP_NUM = 5;
+    parameter int STEP_SEL_WIDTH = $clog2(STEP_NUM);
+
+    // Iota Step
+    parameter int ROUND_INDEX_SIZE = 5;
+    parameter int MAX_ROUNDS = 24;
+    parameter int L_SIZE = 7;
+
     // Keccak Structure
     parameter int DWIDTH = 256; // Input data is 32 bytes
     parameter int DATA_BYTE_NUM = DWIDTH/8;
@@ -37,19 +51,5 @@ package keccak_pkg;
         CHI_STEP,
         IOTA_STEP
     } keccak_step_t;
-
-    // State Array Dimension Bit Sizes
-    parameter int LANE_SIZE = 64;
-    parameter int ROW_SIZE  = 5;
-    parameter int COL_SIZE  = 5;
-
-    // Step Map
-    parameter int STEP_NUM = 5;
-    parameter int STEP_SEL_WIDTH = $clog2(STEP_NUM);
-
-    // Iota Step
-    parameter int ROUND_INDEX_SIZE = 5;
-    parameter int MAX_ROUNDS = 24;
-    parameter int L_SIZE = 7;
 
 endpackage : keccak_pkg
