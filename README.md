@@ -23,7 +23,6 @@ This core utilizes a **Multi-Cycle Iterative Architecture**. To maximize operati
 * **Standard Interface:** **AXI4-Stream** compliant Sink (Input) and Source (Output) with full backpressure support.
 * **Robust Architecture:**
     * **Internal Padding:** Automatically handles the FIPS 202 `10*1` padding rule and Domain Separation Suffixes.
-    * **Safety Features:** Integrated **SystemVerilog Assertions (SVA)** verify state machine stability, counter overflows, and AXI protocol compliance in real-time.
 * **Production Ready:** Written with `default_nettype none` to prevent implicit wire hazards and supports explicit width casting.
 
 ## 📦 Installation & Cloning
