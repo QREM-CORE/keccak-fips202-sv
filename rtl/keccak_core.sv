@@ -674,7 +674,7 @@ module keccak_core (
     // Critical: If this fires, your counter logic is broken.
     property p_bytes_absorbed_overflow;
         @(posedge clk) disable iff (rst)
-        (bytes_absorbed <= (rate >> 3));
+        (RATE_WIDTH'(bytes_absorbed) <= (rate >> 3));
     endproperty
     assert property (p_bytes_absorbed_overflow)
         else $error("FATAL: bytes_absorbed exceeded maximum rate!");
@@ -702,7 +702,7 @@ module keccak_core (
     // Once Valid is asserted, Data/Keep/Last must NOT change until Ready goes high.
     property p_axi_sink_stability;
         @(posedge clk) disable iff (rst)
-        (t_valid_i && !t_ready_o) |-> ##1 (
+        ($past(t_valid_i) && !$past(t_ready_o)) |-> (
             $stable(t_valid_i) &&
             $stable(t_data_i) &&
             $stable(t_keep_i) &&
@@ -728,7 +728,7 @@ module keccak_core (
     // If we assert Valid output, we must hold it until the receiver is Ready.
     property p_axi_source_stability;
         @(posedge clk) disable iff (rst)
-        (t_valid_o && !t_ready_i) |-> ##1 (
+        ($past(t_valid_o) && !$past(t_ready_i)) |-> (
             $stable(t_valid_o) &&
             $stable(t_data_o) &&
             $stable(t_keep_o) &&
@@ -746,7 +746,7 @@ module keccak_core (
     // Should never squeeze more bytes than the rate allows before re-permuting.
     property p_squeeze_overflow;
         @(posedge clk) disable iff (rst)
-        (bytes_squeezed <= (rate >> 3));
+        (RATE_WIDTH'(bytes_squeezed) <= (rate >> 3));
     endproperty
     assert property (p_squeeze_overflow)
         else $error("FATAL: Squeeze counter exceeded rate!");
