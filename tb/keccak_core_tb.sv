@@ -136,11 +136,10 @@ module keccak_core_tb;
             s_axis.tkeep  <= '0;
             s_axis.tdata  <= '0;
 
-            // Wait for handshake safely using negedge sampling
+            // Wait for handshake synchronously
             forever begin
-                @(negedge clk);
+                @(posedge clk);
                 if (s_axis.tready) begin
-                    @(posedge clk); // Complete the handshake
                     break;
                 end
             end
@@ -173,11 +172,10 @@ module keccak_core_tb;
                     s_axis.tlast <= 1'b1;
                 end
 
-                // Wait for handshake safely using negedge sampling
+                // Wait for handshake synchronously
                 forever begin
-                    @(negedge clk);
+                    @(posedge clk);
                     if (s_axis.tready) begin
-                        @(posedge clk); // Complete the handshake
                         break;
                     end
                 end
@@ -349,11 +347,17 @@ module keccak_core_tb;
     // =====================================================================
     // 7. Main Test Execution (With Safe Polling Watchdog)
     // =====================================================================
-    task automatic run_test(test_vector_t tv);
+    task automatic run_test(
+        string      name,
+        keccak_mode mode,
+        string      msg_hex_str,
+        string      exp_md_hex_str,
+        int         output_len_bits
+    );
         logic test_done; // Shared flag to kill the watchdog safely
 
         $display("----------------------------------------------------------");
-        $display("STARTING: %s", tv.name);
+        $display("STARTING: %s", name);
 
         reset_dut();
         test_done = 0;
@@ -365,14 +369,14 @@ module keccak_core_tb;
                 // Setup signals before forking the driver/monitor
                 @(posedge clk);
                 start_i <= 1;
-                keccak_mode_i <= tv.mode;
+                keccak_mode_i <= mode;
                 @(posedge clk);
                 start_i <= 0;
 
                 // Run driver and monitor in parallel
                 fork
-                    drive_msg(tv.msg_hex_str);
-                    check_response(tv.name, tv.exp_md_hex_str, tv.output_len_bits, tv.mode);
+                    drive_msg(msg_hex_str);
+                    check_response(name, exp_md_hex_str, output_len_bits, mode);
                 join
 
                 $display("    [INFO] Test execution finished normally.");
@@ -390,7 +394,7 @@ module keccak_core_tb;
 
                 // If the loop finished and test_done is STILL 0, we timed out
                 if (!test_done) begin
-                    $error("[FATAL] TIMEOUT detected for test: %s", tv.name);
+                    $error("[FATAL] TIMEOUT detected for test: %s", name);
                     $fatal("       Simulation forced to stop this test case to save storage.");
                 end
             end
@@ -400,101 +404,65 @@ module keccak_core_tb;
     endtask
 
     initial begin
-        test_vector_t tv;
 
         // =====================================================================
         // 1. SHA3-256 (Rate = 1088 bits)
         // =====================================================================
 
         // Empty Message
-        tv.name = "SHA3-256 Empty"; tv.mode = SHA3_256; tv.msg_hex_str = "";
-        tv.exp_md_hex_str = "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a";
-        tv.output_len_bits = 256; vectors.push_back(tv);
+        vectors.push_back('{"SHA3-256 Empty", SHA3_256, "", "a7ffc6f8bf1ed76651c14756a061d662f580ff4de43b49fa82d80a4b80f8434a", 256});
 
         // Short Message (Single beat)
-        tv.name = "SHA3-256 Short"; tv.mode = SHA3_256; tv.msg_hex_str = "616263"; // "abc"
-        tv.exp_md_hex_str = "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532";
-        tv.output_len_bits = 256; vectors.push_back(tv);
+        vectors.push_back('{"SHA3-256 Short", SHA3_256, "616263", "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532", 256});
 
         // Full Rate Message (Spans entire block i.e., 1088 bits)
-        tv.name = "SHA3-256 Full Rate"; tv.mode = SHA3_256;
-        tv.msg_hex_str = "56ea14d7fcb0db748ff649aaa5d0afdc2357528a9aad6076d73b2805b53d89e73681abfad26bee6c0f3d20215295f354f538ae80990d2281be6de0f6919aa9eb048c26b524f4d91ca87b54c0c54aa9b54ad02171e8bf31e8d158a9f586e92ffce994ecce9a5185cc80364d50a6f7b94849a914242fcb73f33a86ecc83c3403630d20650ddb8cd9c4";
-        tv.exp_md_hex_str = "4beae3515ba35ec8cbd1d94567e22b0d7809c466abfbafe9610349597ba15b45";
-        tv.output_len_bits = 256; vectors.push_back(tv);
+        vectors.push_back('{"SHA3-256 Full Rate", SHA3_256, "56ea14d7fcb0db748ff649aaa5d0afdc2357528a9aad6076d73b2805b53d89e73681abfad26bee6c0f3d20215295f354f538ae80990d2281be6de0f6919aa9eb048c26b524f4d91ca87b54c0c54aa9b54ad02171e8bf31e8d158a9f586e92ffce994ecce9a5185cc80364d50a6f7b94849a914242fcb73f33a86ecc83c3403630d20650ddb8cd9c4", "4beae3515ba35ec8cbd1d94567e22b0d7809c466abfbafe9610349597ba15b45", 256});
 
         // Long Message (Spans multiple blocks/permutations)
-        tv.name = "SHA3-256 Long"; tv.mode = SHA3_256;
-        tv.msg_hex_str = "b1caa396771a09a1db9bc20543e988e359d47c2a616417bbca1b62cb02796a888fc6eeff5c0b5c3d5062fcb4256f6ae1782f492c1cf03610b4a1fb7b814c057878e1190b9835425c7a4a0e182ad1f91535ed2a35033a5d8c670e21c575ff43c194a58a82d4a1a44881dd61f9f8161fc6b998860cbe4975780be93b6f87980bad0a99aa2cb7556b478ca35d1f3746c33e2bb7c47af426641cc7bbb3425e2144820345e1d0ea5b7da2c3236a52906acdc3b4d34e474dd714c0c40bf006a3a1d889a632983814bbc4a14fe5f159aa89249e7c738b3b73666bac2a615a83fd21ae0a1ce7352ade7b278b587158fd2fabb217aa1fe31d0bda53272045598015a8ae4d8cec226fefa58daa05500906c4d85e7567";
-        tv.exp_md_hex_str = "cb5648a1d61c6c5bdacd96f81c9591debc3950dcf658145b8d996570ba881a05";
-        tv.output_len_bits = 256; vectors.push_back(tv);
+        vectors.push_back('{"SHA3-256 Long", SHA3_256, "b1caa396771a09a1db9bc20543e988e359d47c2a616417bbca1b62cb02796a888fc6eeff5c0b5c3d5062fcb4256f6ae1782f492c1cf03610b4a1fb7b814c057878e1190b9835425c7a4a0e182ad1f91535ed2a35033a5d8c670e21c575ff43c194a58a82d4a1a44881dd61f9f8161fc6b998860cbe4975780be93b6f87980bad0a99aa2cb7556b478ca35d1f3746c33e2bb7c47af426641cc7bbb3425e2144820345e1d0ea5b7da2c3236a52906acdc3b4d34e474dd714c0c40bf006a3a1d889a632983814bbc4a14fe5f159aa89249e7c738b3b73666bac2a615a83fd21ae0a1ce7352ade7b278b587158fd2fabb217aa1fe31d0bda53272045598015a8ae4d8cec226fefa58daa05500906c4d85e7567", "cb5648a1d61c6c5bdacd96f81c9591debc3950dcf658145b8d996570ba881a05", 256});
 
         // =====================================================================
         // 2. SHA3-512 (Rate = 576 bits)
         // =====================================================================
 
         // Empty Message
-        tv.name = "SHA3-512 Empty"; tv.mode = SHA3_512; tv.msg_hex_str = "";
-        tv.exp_md_hex_str = "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26";
-        tv.output_len_bits = 512; vectors.push_back(tv);
+        vectors.push_back('{"SHA3-512 Empty", SHA3_512, "", "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26", 512});
 
         // Short Message
-        tv.name = "SHA3-512 Short"; tv.mode = SHA3_512;
-        tv.msg_hex_str = "54746a7ba28b5f263d2496bd0080d83520cd2dc503";
-        tv.exp_md_hex_str = "d77048df60e20d03d336bfa634bc9931c2d3c1e1065d3a07f14ae01a085fe7e7fe6a89dc4c7880f1038938aa8fcd99d2a782d1bbe5eec790858173c7830c87a2";
-        tv.output_len_bits = 512; vectors.push_back(tv);
+        vectors.push_back('{"SHA3-512 Short", SHA3_512, "54746a7ba28b5f263d2496bd0080d83520cd2dc503", "d77048df60e20d03d336bfa634bc9931c2d3c1e1065d3a07f14ae01a085fe7e7fe6a89dc4c7880f1038938aa8fcd99d2a782d1bbe5eec790858173c7830c87a2", 512});
 
         // Long Message
-        tv.name = "SHA3-512 Long"; tv.mode = SHA3_512;
-        tv.msg_hex_str = "22e1df25c30d6e7806cae35cd4317e5f94db028741a76838bfb7d5576fbccab001749a95897122c8d51bb49cfef854563e2b27d9013b28833f161d520856ca4b61c2641c4e184800300aede3518617c7be3a4e6655588f181e9641f8df7a6a42ead423003a8c4ae6be9d767af5623078bb116074638505c10540299219b0155f45b1c18a74548e4328de37a911140531deb6434c534af2449c1abe67e18030681a61240225f87ede15d519b7ce2500bccf33e1364e2fbe6a8a2fe6c15d73242610ed36b0740080812e8902ee531c88e0359020797cbdd1fb78848ae6b5105961d05cdddb8af5fef21b02db94c9810464b8d3ea5f047b94bf0d23931f12df37e102b603cd8e5f5ffa83488df257ddde110106262e0ef16d7ef213e7b49c69276d4d048f";
-        tv.exp_md_hex_str = "a6375ff04af0a18fb4c8175f671181b4cf79653a3d70847c6d99694b3f5d41601f1dbef809675c63cac4ec83153b1c78131a7b61024ce36244f320ab8740cb7e";
-        tv.output_len_bits = 512; vectors.push_back(tv);
+        vectors.push_back('{"SHA3-512 Long", SHA3_512, "22e1df25c30d6e7806cae35cd4317e5f94db028741a76838bfb7d5576fbccab001749a95897122c8d51bb49cfef854563e2b27d9013b28833f161d520856ca4b61c2641c4e184800300aede3518617c7be3a4e6655588f181e9641f8df7a6a42ead423003a8c4ae6be9d767af5623078bb116074638505c10540299219b0155f45b1c18a74548e4328de37a911140531deb6434c534af2449c1abe67e18030681a61240225f87ede15d519b7ce2500bccf33e1364e2fbe6a8a2fe6c15d73242610ed36b0740080812e8902ee531c88e0359020797cbdd1fb78848ae6b5105961d05cdddb8af5fef21b02db94c9810464b8d3ea5f047b94bf0d23931f12df37e102b603cd8e5f5ffa83488df257ddde110106262e0ef16d7ef213e7b49c69276d4d048f", "a6375ff04af0a18fb4c8175f671181b4cf79653a3d70847c6d99694b3f5d41601f1dbef809675c63cac4ec83153b1c78131a7b61024ce36244f320ab8740cb7e", 512});
 
         // =====================================================================
         // 3. SHAKE128 (XOF - Rate = 1344 bits)
         // =====================================================================
 
         // Empty Message
-        tv.name = "SHAKE128 Empty"; tv.mode = SHAKE128;
-        tv.msg_hex_str = "";
-        tv.exp_md_hex_str = "7f9c2ba4e88f827d616045507605853e";
-        tv.output_len_bits = 128; vectors.push_back(tv);
+        vectors.push_back('{"SHAKE128 Empty", SHAKE128, "", "7f9c2ba4e88f827d616045507605853e", 128});
 
         // Short Message
-        tv.name = "SHAKE128 Short"; tv.mode = SHAKE128;
-        tv.msg_hex_str = "84f6cb3dc77b9bf856caf54e";
-        tv.exp_md_hex_str = "56538d52b26f967bb9405e0f54fdf6e2";
-        tv.output_len_bits = 128; vectors.push_back(tv);
+        vectors.push_back('{"SHAKE128 Short", SHAKE128, "84f6cb3dc77b9bf856caf54e", "56538d52b26f967bb9405e0f54fdf6e2", 128});
 
         // Long Message
-        tv.name = "SHAKE128 Long"; tv.mode = SHAKE128;
-        tv.msg_hex_str = "a6fe00064257aa318b621c5eb311d32bb8004c2fa1a969d205d71762cc5d2e633907992629d1b69d9557ff6d5e8deb454ab00f6e497c89a4fea09e257a6fa2074bd818ceb5981b3e3faefd6e720f2d1edd9c5e4a5c51e5009abf636ed5bca53fe159c8287014a1bd904f5c8a7501625f79ac81eb618f478ce21cae6664acffb30572f059e1ad0fc2912264e8f1ca52af26c8bf78e09d75f3dd9fc734afa8770abe0bd78c90cc2ff448105fb16dd2c5b7edd8611a62e537db9331f5023e16d6ec150cc6e706d7c7fcbfff930c7281831fd5c4aff86ece57ed0db882f59a5fe403105d0592ca38a081fed84922873f538ee774f13b8cc09bd0521db4374aec69f4bae6dcb66455822c0b84c91a3474ffac2ad06f0a4423cd2c6a49d4f0d6242d6a1890937b5d9835a5f0ea5b1d01884d22a6c1718e1f60b3ab5e232947c76ef70b344171083c688093b5f1475377e3069863";
-        tv.exp_md_hex_str = "3109d9472ca436e805c6b3db2251a9bc";
-        tv.output_len_bits = 128; vectors.push_back(tv);
+        vectors.push_back('{"SHAKE128 Long", SHAKE128, "a6fe00064257aa318b621c5eb311d32bb8004c2fa1a969d205d71762cc5d2e633907992629d1b69d9557ff6d5e8deb454ab00f6e497c89a4fea09e257a6fa2074bd818ceb5981b3e3faefd6e720f2d1edd9c5e4a5c51e5009abf636ed5bca53fe159c8287014a1bd904f5c8a7501625f79ac81eb618f478ce21cae6664acffb30572f059e1ad0fc2912264e8f1ca52af26c8bf78e09d75f3dd9fc734afa8770abe0bd78c90cc2ff448105fb16dd2c5b7edd8611a62e537db9331f5023e16d6ec150cc6e706d7c7fcbfff930c7281831fd5c4aff86ece57ed0db882f59a5fe403105d0592ca38a081fed84922873f538ee774f13b8cc09bd0521db4374aec69f4bae6dcb66455822c0b84c91a3474ffac2ad06f0a4423cd2c6a49d4f0d6242d6a1890937b5d9835a5f0ea5b1d01884d22a6c1718e1f60b3ab5e232947c76ef70b344171083c688093b5f1475377e3069863", "3109d9472ca436e805c6b3db2251a9bc", 128});
 
         // =====================================================================
         // 4. SHAKE256 (XOF - Rate = 1088 bits)
         // =====================================================================
 
         // Empty Message
-        tv.name = "SHAKE256 Empty"; tv.mode = SHAKE256; tv.msg_hex_str = "";
-        tv.exp_md_hex_str = "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f";
-        tv.output_len_bits = 256; vectors.push_back(tv);
+        vectors.push_back('{"SHAKE256 Empty", SHAKE256, "", "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f", 256});
 
         // Short Message
-        tv.name = "SHAKE256 Short"; tv.mode = SHAKE256;
-        tv.msg_hex_str = "765db6ab3af389b8c775c8eb99fe72";
-        tv.exp_md_hex_str = "ccb6564a655c94d714f80b9f8de9e2610c4478778eac1b9256237dbf90e50581";
-        tv.output_len_bits = 256; vectors.push_back(tv);
+        vectors.push_back('{"SHAKE256 Short", SHAKE256, "765db6ab3af389b8c775c8eb99fe72", "ccb6564a655c94d714f80b9f8de9e2610c4478778eac1b9256237dbf90e50581", 256});
 
         // Long Message
-        tv.name = "SHAKE256 Long"; tv.mode = SHAKE256;
-        tv.msg_hex_str = "dc5a100fa16df1583c79722a0d72833d3bf22c109b8889dbd35213c6bfce205813edae3242695cfd9f59b9a1c203c1b72ef1a5423147cb990b5316a85266675894e2644c3f9578cebe451a09e58c53788fe77a9e850943f8a275f830354b0593a762bac55e984db3e0661eca3cb83f67a6fb348e6177f7dee2df40c4322602f094953905681be3954fe44c4c902c8f6bba565a788b38f13411ba76ce0f9f6756a2a2687424c5435a51e62df7a8934b6e141f74c6ccf539e3782d22b5955d3baf1ab2cf7b5c3f74ec2f9447344e937957fd7f0bdfec56d5d25f61cde18c0986e244ecf780d6307e313117256948d4230ebb9ea62bb302cfe80d7dfebabc4a51d7687967ed5b416a139e974c005fff507a96";
-        tv.exp_md_hex_str = "2bac5716803a9cda8f9e84365ab0a681327b5ba34fdedfb1c12e6e807f45284b";
-        tv.output_len_bits = 256; vectors.push_back(tv);
+        vectors.push_back('{"SHAKE256 Long", SHAKE256, "dc5a100fa16df1583c79722a0d72833d3bf22c109b8889dbd35213c6bfce205813edae3242695cfd9f59b9a1c203c1b72ef1a5423147cb990b5316a85266675894e2644c3f9578cebe451a09e58c53788fe77a9e850943f8a275f830354b0593a762bac55e984db3e0661eca3cb83f67a6fb348e6177f7dee2df40c4322602f094953905681be3954fe44c4c902c8f6bba565a788b38f13411ba76ce0f9f6756a2a2687424c5435a51e62df7a8934b6e141f74c6ccf539e3782d22b5955d3baf1ab2cf7b5c3f74ec2f9447344e937957fd7f0bdfec56d5d25f61cde18c0986e244ecf780d6307e313117256948d4230ebb9ea62bb302cfe80d7dfebabc4a51d7687967ed5b416a139e974c005fff507a96", "2bac5716803a9cda8f9e84365ab0a681327b5ba34fdedfb1c12e6e807f45284b", 256});
 
         // Execute all
         foreach(vectors[i]) begin
-            run_test(vectors[i]);
+            run_test(vectors[i].name, vectors[i].mode, vectors[i].msg_hex_str, vectors[i].exp_md_hex_str, vectors[i].output_len_bits);
         end
 
         $display("==========================================================");

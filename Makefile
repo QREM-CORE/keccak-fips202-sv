@@ -49,7 +49,7 @@ run_%:
 ifeq ($(SIM), verilator)
 	# Compile WITH tracing for standard TBs
 	verilator $(VERILATOR_FLAGS) --trace $(INCDIRS) --top-module $* $(RTL_FILES) tb/$*.sv
-	./obj_dir/V$* > $*.log
+	bash -c "set -o pipefail; ./obj_dir/V$* 2>&1 | tee $*.log"
 else
 	vlib work
 	vlog -work work -sv $(INCDIRS) $(RTL_FILES) tb/$*.sv
@@ -72,7 +72,7 @@ run_keccak_core_heavy_tb:
 ifeq ($(SIM), verilator)
 	# Compile WITHOUT --trace to maximize speed and save disk space
 	verilator $(VERILATOR_FLAGS) $(INCDIRS) --top-module keccak_core_heavy_tb $(RTL_FILES) tb/keccak_core_heavy_tb.sv
-	./obj_dir/Vkeccak_core_heavy_tb > keccak_core_heavy_tb.log
+	bash -c "set -o pipefail; ./obj_dir/Vkeccak_core_heavy_tb 2>&1 | tee keccak_core_heavy_tb.log"
 else
 	vlib work
 	vlog -work work -sv $(INCDIRS) $(RTL_FILES) tb/keccak_core_heavy_tb.sv
@@ -89,7 +89,7 @@ run_heavy_fail:
 ifeq ($(SIM), verilator)
 	# Compile WITH --trace and pass +TEST_ID to the executable
 	verilator $(VERILATOR_FLAGS) --trace $(INCDIRS) --top-module keccak_core_heavy_tb $(RTL_FILES) tb/keccak_core_heavy_tb.sv
-	./obj_dir/Vkeccak_core_heavy_tb +TEST_ID=$(TEST_ID) > keccak_core_heavy_tb_fail_$(TEST_ID).log
+	bash -c "set -o pipefail; ./obj_dir/Vkeccak_core_heavy_tb +TEST_ID=$(TEST_ID) 2>&1 | tee keccak_core_heavy_tb_fail_$(TEST_ID).log"
 else
 	vlib work
 	vlog -work work -sv $(INCDIRS) $(RTL_FILES) tb/keccak_core_heavy_tb.sv
