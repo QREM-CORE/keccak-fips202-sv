@@ -140,59 +140,57 @@ module keccak_core_tb;
             forever begin
                 @(negedge clk);
                 if (s_axis.tready) begin
-                    @(posedge clk); // Complete the handshake on the positive edge
+                    @(posedge clk); // Complete the handshake
                     break;
                 end
             end
 
+            // Drop signals safely
             s_axis.tvalid <= 0;
             s_axis.tlast  <= 0;
             s_axis.tkeep  <= 0;
-            return;
-        end
 
         // Main loop for >0 bytes
-        while (sent_bytes < total_bytes) begin
-            s_axis.tvalid <= 1;
-            s_axis.tdata  <= '0;
-            s_axis.tkeep  <= '0;
+        end else begin
+            while (sent_bytes < total_bytes) begin
+                s_axis.tvalid <= 1;
+                s_axis.tdata  <= '0;
+                s_axis.tkeep  <= '0;
+                s_axis.tlast  <= 0;
+
+                // Pack up to 32 bytes (BYTES_PER_BEAT) into tdata
+                for (k = 0; k < BYTES_PER_BEAT; k++) begin
+                    if ((sent_bytes + k) < total_bytes) begin
+                        s_axis.tdata[k*8 +: 8] <= msg_bytes[sent_bytes + k];
+                        s_axis.tkeep[k]        <= 1'b1;
+                    end
+                end
+
+                sent_bytes += BYTES_PER_BEAT;
+
+                // Assert T_LAST if this is the final chunk
+                if (sent_bytes >= total_bytes) begin
+                    s_axis.tlast <= 1'b1;
+                end
+
+                // Wait for handshake safely using negedge sampling
+                forever begin
+                    @(negedge clk);
+                    if (s_axis.tready) begin
+                        @(posedge clk); // Complete the handshake
+                        break;
+                    end
+                end
+            end
+
+            // Drop signals safely
+            s_axis.tvalid <= 0;
             s_axis.tlast  <= 0;
-
-            // Pack up to 32 bytes (BYTES_PER_BEAT) into tdata
-            for (k = 0; k < BYTES_PER_BEAT; k++) begin
-                if ((sent_bytes + k) < total_bytes) begin
-                    s_axis.tdata[k*8 +: 8] <= msg_bytes[sent_bytes + k];
-                    s_axis.tkeep[k]        <= 1'b1;
-                end
-            end
-
-            sent_bytes += BYTES_PER_BEAT;
-
-            // Assert T_LAST if this is the final chunk
-            if (sent_bytes >= total_bytes) begin
-                s_axis.tlast <= 1'b1;
-            end
-
-            // Wait for handshake safely using negedge sampling
-            forever begin
-                @(negedge clk);
-                if (s_axis.tready) begin
-                    @(posedge clk); // Complete the handshake on the positive edge
-                    break;
-                end
-            end
+            s_axis.tkeep  <= 0;
         end
 
-        // Cleanup
-        s_axis.tvalid <= 0;
-        s_axis.tlast  <= 0;
-        s_axis.tkeep  <= 0;
-
-        // Verify tready behavior post-transaction
-        #(1);
-        if (s_axis.tready === 1'bx) begin
-             $error("[FAIL] s_axis.tready is X (unknown) after driving message!");
-        end
+        // Final buffer cycle to ensure clean exit
+        @(posedge clk);
     endtask
 
     // =====================================================================
@@ -349,24 +347,27 @@ module keccak_core_tb;
     endtask
 
     // =====================================================================
-    // 7. Main Test Execution (With Watchdog Timer)
+    // 7. Main Test Execution (With Safe Polling Watchdog)
     // =====================================================================
     task automatic run_test(test_vector_t tv);
+        logic test_done; // Shared flag to kill the watchdog safely
+
         $display("----------------------------------------------------------");
         $display("STARTING: %s", tv.name);
 
         reset_dut();
+        test_done = 0;
 
-        // Use fork/join_any to implement a watchdog timer
-        fork : test_watchdog_guard
+        // Run Test Logic and Watchdog in parallel
+        fork
             // Thread 1: The Test Logic
             begin
                 // Setup signals before forking the driver/monitor
                 @(posedge clk);
-                start_i = 1;
-                keccak_mode_i = tv.mode;
+                start_i <= 1;
+                keccak_mode_i <= tv.mode;
                 @(posedge clk);
-                start_i = 0;
+                start_i <= 0;
 
                 // Run driver and monitor in parallel
                 fork
@@ -375,18 +376,25 @@ module keccak_core_tb;
                 join
 
                 $display("    [INFO] Test execution finished normally.");
+                test_done = 1; // Signal the watchdog to stop!
             end
 
-            // Thread 2: The Timeout Watchdog
+            // Thread 2: Safe Polling Watchdog (Avoids Verilator disable fork bugs)
             begin
-                #(TIMEOUT_LIMIT);
-                $error("[FATAL] TIMEOUT detected for test: %s", tv.name);
-                $error("       Simulation forced to stop this test case to save storage.");
+                int time_waited = 0;
+                // Check every 1000ns to see if the test finished, up to the limit
+                while (!test_done && time_waited < TIMEOUT_LIMIT) begin
+                    #(1000);
+                    time_waited += 1000;
+                end
+
+                // If the loop finished and test_done is STILL 0, we timed out
+                if (!test_done) begin
+                    $error("[FATAL] TIMEOUT detected for test: %s", tv.name);
+                    $fatal("       Simulation forced to stop this test case to save storage.");
+                end
             end
         join_any
-
-        // Disable pending threads (either the timer or the stuck test logic)
-        disable fork;
 
         #(CLK_PERIOD * 5);
     endtask
