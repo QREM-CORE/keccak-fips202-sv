@@ -394,7 +394,7 @@ module keccak_core_tb;
                     $fatal("       Simulation forced to stop this test case to save storage.");
                 end
             end
-        join_any
+        join
 
         #(CLK_PERIOD * 5);
     endtask

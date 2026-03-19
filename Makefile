@@ -49,7 +49,7 @@ run_%:
 ifeq ($(SIM), verilator)
 	# Compile WITH tracing for standard TBs
 	verilator $(VERILATOR_FLAGS) --trace $(INCDIRS) --top-module $* $(RTL_FILES) tb/$*.sv
-	./obj_dir/V$*
+	./obj_dir/V$* > $*.log
 else
 	vlib work
 	vlog -work work -sv $(INCDIRS) $(RTL_FILES) tb/$*.sv
@@ -57,7 +57,7 @@ else
 	@echo 'vcd add -r /$*/*' >> run_$*.macro
 	@echo 'run -all' >> run_$*.macro
 	@echo 'quit' >> run_$*.macro
-	vsim -c -do run_$*.macro work.$*
+	vsim -c -do run_$*.macro work.$* -l $*.log
 	@rm -f run_$*.macro
 endif
 
@@ -72,13 +72,13 @@ run_keccak_core_heavy_tb:
 ifeq ($(SIM), verilator)
 	# Compile WITHOUT --trace to maximize speed and save disk space
 	verilator $(VERILATOR_FLAGS) $(INCDIRS) --top-module keccak_core_heavy_tb $(RTL_FILES) tb/keccak_core_heavy_tb.sv
-	./obj_dir/Vkeccak_core_heavy_tb
+	./obj_dir/Vkeccak_core_heavy_tb > keccak_core_heavy_tb.log
 else
 	vlib work
 	vlog -work work -sv $(INCDIRS) $(RTL_FILES) tb/keccak_core_heavy_tb.sv
 	@echo 'run -all' > run_heavy.macro
 	@echo 'quit' >> run_heavy.macro
-	vsim -c -do run_heavy.macro work.keccak_core_heavy_tb
+	vsim -c -do run_heavy.macro work.keccak_core_heavy_tb -l keccak_core_heavy_tb.log
 	@rm -f run_heavy.macro
 endif
 
@@ -89,7 +89,7 @@ run_heavy_fail:
 ifeq ($(SIM), verilator)
 	# Compile WITH --trace and pass +TEST_ID to the executable
 	verilator $(VERILATOR_FLAGS) --trace $(INCDIRS) --top-module keccak_core_heavy_tb $(RTL_FILES) tb/keccak_core_heavy_tb.sv
-	./obj_dir/Vkeccak_core_heavy_tb +TEST_ID=$(TEST_ID)
+	./obj_dir/Vkeccak_core_heavy_tb +TEST_ID=$(TEST_ID) > keccak_core_heavy_tb_fail_$(TEST_ID).log
 else
 	vlib work
 	vlog -work work -sv $(INCDIRS) $(RTL_FILES) tb/keccak_core_heavy_tb.sv
@@ -97,7 +97,7 @@ else
 	@echo 'vcd add -r /keccak_core_heavy_tb/*' >> run_fail.macro
 	@echo 'run -all' >> run_fail.macro
 	@echo 'quit' >> run_fail.macro
-	vsim -c -do run_fail.macro work.keccak_core_heavy_tb +TEST_ID=$(TEST_ID)
+	vsim -c -do run_fail.macro work.keccak_core_heavy_tb +TEST_ID=$(TEST_ID) -l keccak_core_heavy_tb_fail_$(TEST_ID).log
 	@rm -f run_fail.macro
 endif
 
