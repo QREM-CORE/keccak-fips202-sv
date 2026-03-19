@@ -1,90 +1,106 @@
+# =========================================================
+# Keccak Dual-Simulator Makefile (ModelSim + Verilator)
+# =========================================================
+
+# --- PATH & FILE DEFINITIONS ---
+# Includes for your packages and headers
+INCDIRS = +incdir+rtl +incdir+lib/common_rtl/rtl
+
+# 1. Dynamically read RTL files from the filelist (rtl.f)
+# Preserves exact order from rtl.f.
+# NOTE: Make sure your packages (e.g., keccak_pkg.sv) are at the TOP of rtl.f!
+RTL_FILES = $(shell grep -v '^\#' rtl.f | grep -v '^$$')
+
+# 2. Discover testbenches, but FILTER OUT the heavy testbench
+# This ensures 'make' or 'make run_all' skips the heavy simulation
+ALL_TBS = $(patsubst tb/%.sv,%,$(wildcard tb/*_tb.sv))
+TESTBENCHES = $(filter-out keccak_core_heavy_tb, $(ALL_TBS))
+
+# Simulator selection (default to vsim if not specified)
+# Usage: make run_all SIM=verilator
+SIM ?= vsim
+
+# --- VERILATOR FLAGS ---
+# --binary: Build an executable (requires Verilator v5.0+)
+# --timing: Support delay statements (#1ns) in SV
+VERILATOR_FLAGS = --binary -j 0 --timing -Wall -Wno-fatal
+# Note: --trace is added dynamically below for targets that need VCDs
+
 # =====================
-# ModelSim Multi-TB Makefile
+# STANDARD TARGETS
 # =====================
-
-# List of testbenches (example: TESTBENCHES = theta_step_tb rho_step_tb)
-TESTBENCHES = theta_step_tb rho_step_tb pi_step_tb chi_step_tb iota_step_tb keccak_absorb_unit_tb keccak_output_unit_tb keccak_core_tb
-
-# --- PATH DEFINITIONS ---
-LIB_DIR     = lib/common_rtl
-# Assuming the submodule has its own 'rtl' folder inside
-LIB_SRCS    = $(wildcard $(LIB_DIR)/rtl/*.sv)
-
-# --- SOURCE FILES ---
-# Packages must be compiled first
-PKG_SRCS    = rtl/keccak_pkg.sv
-
-# Your local design files
-DESIGN_SRCS = $(wildcard rtl/*.sv)
-COMMON_SRCS = $(wildcard rtl/*.svh)
-
-# Work library
-WORK = work
 
 # Default target
-all: $(WORK)
-	@if [ -z "$(strip $(TESTBENCHES))" ]; then \
-		echo "No testbenches specified. Compiling RTL only..."; \
-		vlog -work $(WORK) -sv +incdir+$(LIB_DIR)/rtl $(PKG_SRCS) $(LIB_SRCS); \
-		vlog -work $(WORK) -sv +incdir+$(LIB_DIR)/rtl $(filter-out $(PKG_SRCS), $(DESIGN_SRCS)) $(COMMON_SRCS); \
-	else \
-		$(MAKE) run_all TESTBENCHES="$(TESTBENCHES)"; \
-	fi
+all: run_all
 
+.PHONY: run_all clean run_% run_keccak_core_heavy_tb run_heavy_fail
 
-# Create ModelSim work library
-$(WORK):
-	vlib $(WORK)
-
-# Run all testbenches
-.PHONY: run_all clean run_%
-
+# Loop through all testbenches
 run_all:
 	@for tb in $(TESTBENCHES); do \
-		$(MAKE) run_$$tb; \
+		$(MAKE) run_$$tb SIM=$(SIM); \
 	done
 
-# Rule for each testbench
-run_%: $(WORK)
-	@if [ "$*" = "all" ]; then exit 0; fi
-	@echo "=== Running $* ==="
-# 1. Compile Packages & Common Lib (Interfaces)
-	vlog -work $(WORK) -sv +incdir+$(LIB_DIR)/rtl $(PKG_SRCS) $(LIB_SRCS)
-# 2. Compile Design & Testbench
-	vlog -work $(WORK) -sv +incdir+$(LIB_DIR)/rtl $(filter-out $(PKG_SRCS), $(DESIGN_SRCS)) $(COMMON_SRCS) tb/$*.sv
-
-# 3. Create Macro & Run
+# Standard rule for each testbench (Generates VCD)
+run_%:
+	@echo "=== Running $* with $(SIM) ==="
+ifeq ($(SIM), verilator)
+	# Compile WITH tracing for standard TBs
+	verilator $(VERILATOR_FLAGS) --trace $(INCDIRS) --top-module $* -f rtl.f tb/$*.sv
+	./obj_dir/V$*
+else
+	vlib work
+	vlog -work work -sv $(INCDIRS) -f rtl.f tb/$*.sv
 	@echo 'vcd file "$*.vcd"' > run_$*.macro
 	@echo 'vcd add -r /$*/*' >> run_$*.macro
 	@echo 'run -all' >> run_$*.macro
 	@echo 'quit' >> run_$*.macro
-	vsim -c -do run_$*.macro $(WORK).$*
+	vsim -c -do run_$*.macro work.$*
 	@rm -f run_$*.macro
-# Add the new TB to the list
-TESTBENCHES += keccak_core_heavy_tb
+endif
+
+# =====================
+# HEAVY REGRESSION TARGETS
+# =====================
 
 # Special rule for the "Heavy" TB (Running ALL, NO VCD)
-# We override the standard run_% rule for this specific target to avoid huge VCDs
-run_keccak_core_heavy_tb: $(WORK)
-	@echo "=== Running Heavy Regression (No VCD) ==="
-	vlog -work $(WORK) -sv +incdir+$(LIB_DIR)/rtl $(PKG_SRCS)
-	vlog -work $(WORK) -sv +incdir+$(LIB_DIR)/rtl $(filter-out $(PKG_SRCS), $(DESIGN_SRCS)) $(COMMON_SRCS) tb/keccak_core_heavy_tb.sv
+# Overrides standard run_% to avoid huge VCD files
+run_keccak_core_heavy_tb:
+	@echo "=== Running Heavy Regression (No VCD) with $(SIM) ==="
+ifeq ($(SIM), verilator)
+	# Compile WITHOUT --trace to maximize speed and save disk space
+	verilator $(VERILATOR_FLAGS) $(INCDIRS) --top-module keccak_core_heavy_tb -f rtl.f tb/keccak_core_heavy_tb.sv
+	./obj_dir/Vkeccak_core_heavy_tb
+else
+	vlib work
+	vlog -work work -sv $(INCDIRS) -f rtl.f tb/keccak_core_heavy_tb.sv
 	@echo 'run -all' > run_heavy.macro
 	@echo 'quit' >> run_heavy.macro
-	vsim -c -do run_heavy.macro $(WORK).keccak_core_heavy_tb
-	rm -f run_heavy.macro
+	vsim -c -do run_heavy.macro work.keccak_core_heavy_tb
+	@rm -f run_heavy.macro
+endif
 
 # Special rule for Re-running a FAILURE (With VCD)
-# Usage: make run_heavy_fail TEST_ID=123
-run_heavy_fail: $(WORK)
-	@echo "=== Debugging Test ID $(TEST_ID) ==="
+# Usage: make run_heavy_fail TEST_ID=123 SIM=verilator
+run_heavy_fail:
+	@echo "=== Debugging Test ID $(TEST_ID) with $(SIM) ==="
+ifeq ($(SIM), verilator)
+	# Compile WITH --trace and pass +TEST_ID to the executable
+	verilator $(VERILATOR_FLAGS) --trace $(INCDIRS) --top-module keccak_core_heavy_tb -f rtl.f tb/keccak_core_heavy_tb.sv
+	./obj_dir/Vkeccak_core_heavy_tb +TEST_ID=$(TEST_ID)
+else
+	vlib work
+	vlog -work work -sv $(INCDIRS) -f rtl.f tb/keccak_core_heavy_tb.sv
 	@echo 'vcd file "keccak_core_heavy_tb.vcd"' > run_fail.macro
 	@echo 'vcd add -r /keccak_core_heavy_tb/*' >> run_fail.macro
 	@echo 'run -all' >> run_fail.macro
 	@echo 'quit' >> run_fail.macro
-	vsim -c -do run_fail.macro $(WORK).keccak_core_heavy_tb +TEST_ID=$(TEST_ID)
-	rm -f run_fail.macro
+	vsim -c -do run_fail.macro work.keccak_core_heavy_tb +TEST_ID=$(TEST_ID)
+	@rm -f run_fail.macro
+endif
 
-# Clean build files
+# =====================
+# CLEANUP
+# =====================
 clean:
-	rm -rf $(WORK) *.vcd transcript vsim.wlf run_*.macro *.log
+	rm -rf work *.vcd transcript vsim.wlf run_*.macro *.log obj_dir
