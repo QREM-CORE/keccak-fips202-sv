@@ -35,7 +35,7 @@ module keccak_core (
     input   wire                            rst,
 
     input   wire                            start_i,
-    input   wire  [MODE_SEL_WIDTH-1:0]      keccak_mode_i,
+    input   keccak_mode                     keccak_mode_i,
     input   wire                            stop_i,
 
     // AXI4-Stream Interface - Sink (Input)
@@ -126,7 +126,7 @@ module keccak_core (
     reg [SUFFIX_WIDTH-1:0]          suffix;
 
     // Keccak Mode Register
-    reg [MODE_SEL_WIDTH-1:0]        keccak_mode;
+    reg [MODE_SEL_WIDTH-1:0]        current_mode;
 
     // Absorb Phase Registers
     reg                             absorb_done; // Absorb stage fully complete flag
@@ -293,7 +293,7 @@ module keccak_core (
         .last_o                 (KOU_LAST_O)
     );
     assign KOU_STATE_ARRAY_I    = state_array;
-    assign KOU_MODE_I           = keccak_mode;
+    assign KOU_MODE_I           = current_mode;
     assign KOU_RATE_I           = rate;
     assign KOU_BYTES_SQUEEZED_I = bytes_squeezed;
 
@@ -586,7 +586,7 @@ module keccak_core (
             // --- Initialization & Reset ---
             if (init_wr_en) begin
                 // 1. Setup Parameters
-                keccak_mode     <= keccak_mode_i;
+                current_mode    <= keccak_mode_i;
                 rate            <= KPU_RATE_O;
                 suffix          <= KPU_SUFFIX_O;
 
@@ -690,10 +690,10 @@ module keccak_core (
     // The Keccak mode should NOT change while the core is busy (not IDLE).
     property p_mode_stable;
         @(posedge clk) disable iff (rst)
-        (state != STATE_IDLE) |-> $stable(keccak_mode);
+        (state != STATE_IDLE) |-> $stable(current_mode);
     endproperty
     assert property (p_mode_stable)
-        else $error("ERROR: keccak_mode changed while core was active!");
+        else $error("ERROR: current_mode changed while core was active!");
 
     // 5B. AXI4-Stream Protocol Compliance (Sink/Input)
     // ----------------------------------------------------------

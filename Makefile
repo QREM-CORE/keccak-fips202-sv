@@ -25,7 +25,7 @@ SIM ?= vsim
 # --- VERILATOR FLAGS ---
 # --binary: Build an executable (requires Verilator v5.0+)
 # --timing: Support delay statements (#1ns) in SV
-VERILATOR_FLAGS = --binary -j 0 --timing -Wall -Wno-fatal
+VERILATOR_FLAGS = --binary --timing -Wall -Wno-fatal
 # Note: --trace is added dynamically below for targets that need VCDs
 
 # =====================
