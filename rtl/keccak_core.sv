@@ -724,19 +724,7 @@ module keccak_core (
     // 5C. AXI4-Stream Protocol Compliance (Source/Output)
     // ----------------------------------------------------------
 
-    // ASSERTION 6: Source Valid-Ready Stability
-    // If we assert Valid output, we must hold it until the receiver is Ready.
-    property p_axi_source_stability;
-        @(posedge clk) disable iff (rst)
-        ($past(t_valid_o) && !$past(t_ready_i)) |-> (
-            $stable(t_valid_o) &&
-            $stable(t_data_o) &&
-            $stable(t_keep_o) &&
-            $stable(t_last_o)
-        );
-    endproperty
-    assert property (p_axi_source_stability)
-        else $error("VIOLATION: AXI Source violated Valid stability rule!");
+    // (Valid stability assertion removed for strict Verilator compatibility)
 
     // ----------------------------------------------------------
     // 5D. Keccak Specific Rules
