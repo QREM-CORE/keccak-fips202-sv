@@ -13,6 +13,10 @@ This core utilizes a **Multi-Cycle Iterative Architecture**. To maximize operati
 ## 🚀 Key Features
 
 * **FIPS 202 Compliant:** Byte-exact implementation of SHA-3 and SHAKE standards. Verified against **3,592 NIST Test Vectors**.
+* **Optimized PPA Profile:**
+    * **Power:** Dynamic operand isolation gates internal permutation logic when inactive.
+    * **Performance:** Word-aligned output multiplexing maps naturally to FPGA primitives, maximizing $F_{max}$.
+    * **Area:** Padding logic shares the XOR-plane resources directly within the Absorb Unit.
 * **Runtime Configurable:** Switch between 4 modes dynamically via input signals:
     * **Fixed-Length:** SHA3-256, SHA3-512
     * **Extendable-Output (XOF):** SHAKE128, SHAKE256
@@ -74,12 +78,11 @@ The core follows a strict **Start → Absorb → Permute → Squeeze** lifecycle
 ### Structural Data Path
 ![Keccak Core Structural Diagram](docs/KECCAK_STRUCTURAL_DIAGRAM.jpg)
 
-The architecture centers around a **1600-bit (200-byte) State Array** that circulates through four specialized processing units in a feedback loop:
+The architecture centers around a **1600-bit (200-byte) State Array** that circulates through processing units in a feedback loop:
 
-* **Keccak Absorb Unit (KAU):** Manages the "Sponge" construction by XORing incoming AXI data streams into the state array. It handles partial-block buffering and rate-boundary crossings.
-* **Suffix Padder Unit (SPU):** Injects the domain separation bits (e.g., `0x06` for SHA3) and the FIPS 202 `10*1` padding rule once the message is complete.
-* **Keccak Step Unit (KSU):** The computational heart of the core. It executes the 24 rounds of permutations ($\theta, \rho, \pi, \chi, \iota$).
-* **Keccak Output Unit (KOU):** Truncates the state array to the desired rate (r) and linearizes the data onto the AXI4-Stream output bus during the Squeeze phase.
+* **Keccak Absorb Unit (KAU):** Manages the "Sponge" construction by XORing incoming AXI data streams into the state array. It handles partial-block buffering, rate-boundary crossings, and dynamically injects FIPS 202 domain suffixes and `10*1` padding using shared hardware resources.
+* **Keccak Step Unit (KSU):** The computational heart of the core. It executes the 24 rounds of permutations ($\theta, \rho, \pi, \chi, \iota$) utilizing exact operand isolation for power efficiency.
+* **Keccak Output Unit (KOU):** Truncates the state array to the desired rate (r) and linearizes the data onto the AXI4-Stream output bus using word-aligned indexing during the Squeeze phase.
 
 ### Finite State Machine (Control)
 ![Keccak Core FSM Diagram](docs/KECCAK_CORE_FSM.jpg)
@@ -300,7 +303,6 @@ The repository is organized into RTL source, testbenches, and verification scrip
 │   ├── keccak_step_unit.sv      # Permutation Round Logic
 │   ├── keccak_absorb_unit.sv    # Input Buffering & XOR Logic
 │   ├── keccak_output_unit.sv    # Output Linearization & Squeeze
-│   ├── suffix_padder_unit.sv    # FIPS 202 Padding Logic
 │   └── *_step.sv                # Individual Step Modules (Chi, Rho, etc.)
 ├── tb/                          # SystemVerilog Testbenches
 │   ├── keccak_core_tb.sv        # Integration Testbench

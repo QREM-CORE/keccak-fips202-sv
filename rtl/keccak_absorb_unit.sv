@@ -26,6 +26,8 @@ module keccak_absorb_unit (
     input   wire  [BYTE_ABSORB_WIDTH-1:0]   bytes_absorbed_i,
     input   wire  [DWIDTH-1:0]              msg_i,
     input   wire  [KEEP_WIDTH-1:0]          keep_i,
+    input   wire                            pad_en_i,
+    input   wire  [SUFFIX_WIDTH-1:0]        suffix_i,
 
     output  logic [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] state_array_o,
     output  logic [BYTE_ABSORB_WIDTH-1:0]   bytes_absorbed_o,
@@ -109,44 +111,58 @@ module keccak_absorb_unit (
     endgenerate
 
     // ==========================================================
-    // 5. XOR INTO STATE (WITH BOUNDARY CHECKS)
+    // 5. XOR INTO STATE (SHARED ABSORB & PADDING RESOURCE)
     // ==========================================================
-    // Find the corresponding lanes and XOR into result
-    // Note: This logic assumes inputs are aligned to 64-bit boundaries relative to the full state.
     logic [4:0] rate_lane_limit;
     assign rate_lane_limit = rate_i[RATE_WIDTH-1:6]; // rate_i / 64
 
     int start_lane_idx;
 
+    // Padder Coordinates
+    int head_lane_idx;
+    int head_byte_offset;
+    logic [63:0] head_pad_val;
+    int tail_lane_idx;
+    logic [63:0] tail_pad_val;
+
+    assign head_lane_idx    = int'(bytes_absorbed_i >> 3);
+    assign head_byte_offset = int'(bytes_absorbed_i[2:0]);
+    assign head_pad_val     = 64'(suffix_i) << (head_byte_offset * 8);
+
+    assign tail_lane_idx    = int'((rate_i >> 6) - 1);
+    assign tail_pad_val     = 64'h8000_0000_0000_0000;
+
+    // Single 1600-bit XOR operand plane multiplexed across Absorb and Padding
+    logic [63:0] xor_plane [25];
+
     always_comb begin
-        // Default
-        state_array_o = state_array_i;
+        // Zero all operands
+        for (int i = 0; i < 25; i++) begin
+            xor_plane[i] = '0;
+        end
 
-        // Determine the starting linear lane index (0, 32, 64, 96, ...)
-        // Logic: bytes / 8 bytes_per_lane
-        start_lane_idx = int'(bytes_absorbed_i >> 3);
+        if (pad_en_i) begin
+            // Padding Phase (Reuses the XOR plane)
+            // Can merge if head == tail!
+            xor_plane[head_lane_idx] |= head_pad_val;
+            xor_plane[tail_lane_idx] |= tail_pad_val;
+        end else begin
+            // Normal Absorb Phase
+            start_lane_idx = int'(bytes_absorbed_i >> 3);
 
-        // Loop through 4 input lanes
-        for (int i = 0; i<INPUT_LANE_NUM; i=i+1) begin
-            int current_lane_idx;
-            int x, y;
-
-            // Linear index for current lane
-            current_lane_idx = start_lane_idx + i;
-
-            /* Coordinate Mapping:
-             * x = index % 5 (Column)
-             * y = index / 5 (Row)
-             */
-            x = current_lane_idx % COL_SIZE;
-            y = current_lane_idx / ROW_SIZE;
-
-            // Check if lane is valid
-            // If we have a carry, the upper lanes of 'split_lanes' will correspond
-            // to current_lane_idx >= rate_lane_limit, so they will be IGNORED here.
-            if (current_lane_idx < rate_lane_limit && current_lane_idx < MAX_POSSIBLE_LANES) begin
-                state_array_o[x][y] = state_array_i[x][y] ^ split_lanes[i];
+            for (int i = 0; i < INPUT_LANE_NUM; i = i + 1) begin
+                automatic int current_lane_idx = start_lane_idx + i;
+                if (current_lane_idx < rate_lane_limit && current_lane_idx < MAX_POSSIBLE_LANES) begin
+                    xor_plane[current_lane_idx] = split_lanes[i];
+                end
             end
+        end
+
+        // Single monolithic 1600-bit XOR execution
+        for (int i = 0; i < 25; i++) begin
+            automatic int x = i % COL_SIZE;
+            automatic int y = i / COL_SIZE;
+            state_array_o[x][y] = state_array_i[x][y] ^ xor_plane[i];
         end
     end
 

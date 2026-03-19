@@ -37,30 +37,35 @@ module keccak_output_unit (
     assign bytes_squeezed_o = bytes_squeezed_i + (DWIDTH / 8);
 
     // ==========================================================
-    // 2. FLATTEN THE 2D STATE ARRAY INTO 1D
+    // 2. FLATTEN STATE ARRAY AND CAST TO WORD-ALIGNED ARRAY
     // ==========================================================
+    localparam int NUM_OUTPUT_WORDS = 1600 / DWIDTH;
     logic [1599:0] state_linear;
+    logic [NUM_OUTPUT_WORDS-1:0][DWIDTH-1:0] state_words;
+
     always_comb begin
+        // 1. Flatten 3D to 1D
         for (int y = 0; y < 5; y++) begin
             for (int x = 0; x < 5; x++) begin
                 // Calculate linear lane index: i = 5*y + x
                 state_linear[(x + 5*y) * 64 +: 64] = state_array_i[x][y];
             end
         end
+        // 2. Cast 1D array into Word-Aligned Boundaries
+        for (int i = 0; i < NUM_OUTPUT_WORDS; i++) begin
+            state_words[i] = state_linear[i * DWIDTH +: DWIDTH];
+        end
     end
 
     // ==========================================================
-    // 3. CALCULATE OUTPUT WINDOW
+    // 3. EXTRACT OUTPUT WORD (High-Fmax Multiplexer)
     // ==========================================================
-    // We want 256 bits (32 bytes) starting at bytes_squeezed_i
-    logic [10:0] start_bit_idx;
-    assign start_bit_idx = bytes_squeezed_i * 8;
+    // Instead of a dynamic bit-slice, select exactly which word block to output.
+    int current_word_idx;
+    assign current_word_idx = bytes_squeezed_i / (DWIDTH / 8);
 
-    // Extract the data window
-    // assign data_o = state_linear[start_bit_idx +: DWIDTH];
     always_comb begin
-        data_o = 'b0;
-        data_o = state_linear[start_bit_idx +: DWIDTH];
+        data_o = state_words[current_word_idx];
     end
 
     // ==========================================================
