@@ -4,3 +4,4 @@ transcript
 *.macro
 *.log
 *.txt
+obj_dir/

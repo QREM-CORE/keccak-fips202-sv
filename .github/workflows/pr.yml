@@ -5,11 +5,10 @@ on:
     branches:
       - main
   pull_request:
-    branches:
-      - main
 
 jobs:
-  simulate:
+  # --- 1. Slow Simulation (VSIM) ---
+  vsim-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -67,6 +66,47 @@ jobs:
           source env.sh
           make
 
+  # --- 2. Fast Simulation (Verilator) ---
+  verilator-build:
+    runs-on: ubuntu-latest
+    container: verilator/verilator:latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - run: apt-get update && apt-get install -y make g++
+      - run: make run_all SIM=verilator
+
+  # --- 3. Synthesis Check (Yosys + Slang) ---
+  # Ensures code can actually become hardware (catches latches/bad syntax)
+  synthesis-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # Added this just in case your common_rtl is a submodule!
+
+      - name: Setup OSS CAD Suite
+        # This official action installs the latest nightly build natively
+        uses: YosysHQ/setup-oss-cad-suite@v3
+        with:
+          # Optional but recommended: prevents GitHub API rate limiting
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Dummy Synthesis with Slang
+        # -m slang  = load the Slang plugin
+        # read_slang = use Slang to parse the SystemVerilog natively
+        run: |
+          # 1. Read the filelist and strip comments/empty lines
+          RAW_FILES=$(grep -v '^\#' rtl.f | grep -v '^$')
+
+          # 2. Use echo without quotes to force bash to expand the *.sv wildcards
+          RTL_FILES=$(echo $RAW_FILES)
+
+          # 3. Pass the fully expanded explicit file list to read_slang directly
+          yosys -m slang -p "read_slang $RTL_FILES; synth -top keccak_core"
+
+  # --- 4. Linter ---
   lint:
     runs-on: ubuntu-latest
     permissions:

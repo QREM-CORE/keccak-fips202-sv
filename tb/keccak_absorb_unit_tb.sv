@@ -70,7 +70,7 @@ module keccak_absorb_unit_tb ();
         input logic exp_has_carry,
         input logic [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] exp_state,
         input logic [DWIDTH-1:0] exp_carry_data = '0,    // Default to 0
-        input logic [CARRY_KEEP_WIDTH-1:0] exp_carry_keep = '0 // Default to 0 (Added Checker)
+        input logic [KEEP_WIDTH-1:0] exp_carry_keep = '0 // Default to 0 (Added Checker)
     );
         int error_count = 0;
 

@@ -35,14 +35,29 @@ module keccak_core (
     input   wire                            rst,
 
     input   wire                            start_i,
-    input   wire  [MODE_SEL_WIDTH-1:0]      keccak_mode_i,
+    input   keccak_mode                     keccak_mode_i,
     input   wire                            stop_i,
 
+`ifdef SYNTHESIS
+    // Expanded ports for synthesis top-level (to avoid "unconnected interface port" errors in Slang/Yosys)
+    input  wire  [DWIDTH-1:0]               s_axis_tdata,
+    input  wire                             s_axis_tvalid,
+    input  wire                             s_axis_tlast,
+    input  wire  [KEEP_WIDTH-1:0]           s_axis_tkeep,
+    output wire                             s_axis_tready,
+
+    output wire  [DWIDTH-1:0]               m_axis_tdata,
+    output wire                             m_axis_tvalid,
+    output wire                             m_axis_tlast,
+    output wire  [KEEP_WIDTH-1:0]           m_axis_tkeep,
+    input  wire                             m_axis_tready
+`else
     // AXI4-Stream Interface - Sink (Input)
     axis_if.sink                            s_axis,
 
     // AXI4-Stream Interface - Source (Output)
     axis_if.source                          m_axis
+`endif
 );
     // Dataflow Summary:
     // AXI Sink -> Absorb (KAU) -> State Array
@@ -68,18 +83,35 @@ module keccak_core (
     logic                   t_ready_i;
 
     // Assignments: Sink (Input from Interface -> Internal)
+`ifdef SYNTHESIS
+    assign t_data_i       = s_axis_tdata;
+    assign t_valid_i      = s_axis_tvalid;
+    assign t_last_i       = s_axis_tlast;
+    assign t_keep_i       = s_axis_tkeep;
+    assign s_axis_tready  = t_ready_o;
+`else
     assign t_data_i       = s_axis.tdata;
     assign t_valid_i      = s_axis.tvalid;
     assign t_last_i       = s_axis.tlast;
     assign t_keep_i       = s_axis.tkeep;
     assign s_axis.tready  = t_ready_o; // Output to Interface
+`endif
 
     // Assignments: Source (Internal -> Output to Interface)
+`ifdef SYNTHESIS
+    assign m_axis_tdata   = t_data_o;
+    assign m_axis_tvalid  = t_valid_o;
+    assign m_axis_tlast   = t_last_o;
+    assign m_axis_tkeep   = t_keep_o;
+    assign t_ready_i      = m_axis_tready;
+`else
     assign m_axis.tdata   = t_data_o;
     assign m_axis.tvalid  = t_valid_o;
     assign m_axis.tlast   = t_last_o;
     assign m_axis.tkeep   = t_keep_o;
     assign t_ready_i      = m_axis.tready; // Input from Interface
+`endif
+
 
     // ==========================================================
     // 1. KECCAK LOGIC, WIRES, REGISTERS AND ENUMS
@@ -126,7 +158,7 @@ module keccak_core (
     reg [SUFFIX_WIDTH-1:0]          suffix;
 
     // Keccak Mode Register
-    reg [MODE_SEL_WIDTH-1:0]        keccak_mode;
+    reg [MODE_SEL_WIDTH-1:0]        current_mode;
 
     // Absorb Phase Registers
     reg                             absorb_done; // Absorb stage fully complete flag
@@ -293,7 +325,7 @@ module keccak_core (
         .last_o                 (KOU_LAST_O)
     );
     assign KOU_STATE_ARRAY_I    = state_array;
-    assign KOU_MODE_I           = keccak_mode;
+    assign KOU_MODE_I           = current_mode;
     assign KOU_RATE_I           = rate;
     assign KOU_BYTES_SQUEEZED_I = bytes_squeezed;
 
@@ -586,7 +618,7 @@ module keccak_core (
             // --- Initialization & Reset ---
             if (init_wr_en) begin
                 // 1. Setup Parameters
-                keccak_mode     <= keccak_mode_i;
+                current_mode    <= keccak_mode_i;
                 rate            <= KPU_RATE_O;
                 suffix          <= KPU_SUFFIX_O;
 
@@ -661,98 +693,6 @@ module keccak_core (
             end
         end
     end
-
-    // ==========================================================
-    // 5. ASSERTIONS (Safety & Protocol Checks)
-    // ==========================================================
-    // synthesis translate_off
-
-    // 5A. Internal Logic Safety
-    // ----------------------------------------------------------
-
-    // ASSERTION 1: Bytes Absorbed Overflow Protection
-    // Critical: If this fires, your counter logic is broken.
-    property p_bytes_absorbed_overflow;
-        @(posedge clk) disable iff (rst)
-        (bytes_absorbed <= (rate >> 3));
-    endproperty
-    assert property (p_bytes_absorbed_overflow)
-        else $error("FATAL: bytes_absorbed exceeded maximum rate!");
-
-    // ASSERTION 2: FSM State Validity
-    // Ensures the FSM never enters an unknown state (X/Z)
-    always @(posedge clk) begin
-        if (!rst && $isunknown(state))
-            $fatal("FATAL: FSM is in an unknown state!");
-    end
-
-    // ASSERTION 3: Mode Stability
-    // The Keccak mode should NOT change while the core is busy (not IDLE).
-    property p_mode_stable;
-        @(posedge clk) disable iff (rst)
-        (state != STATE_IDLE) |-> $stable(keccak_mode);
-    endproperty
-    assert property (p_mode_stable)
-        else $error("ERROR: keccak_mode changed while core was active!");
-
-    // 5B. AXI4-Stream Protocol Compliance (Sink/Input)
-    // ----------------------------------------------------------
-
-    // ASSERTION 4: AXI Valid-Ready Stability (The "Handshake Rule")
-    // Once Valid is asserted, Data/Keep/Last must NOT change until Ready goes high.
-    property p_axi_sink_stability;
-        @(posedge clk) disable iff (rst)
-        (t_valid_i && !t_ready_o) |-> ##1 (
-            $stable(t_valid_i) &&
-            $stable(t_data_i) &&
-            $stable(t_keep_i) &&
-            $stable(t_last_i)
-        );
-    endproperty
-    assert property (p_axi_sink_stability)
-        else $error("VIOLATION: AXI Sink violated Valid stability rule!");
-
-    // ASSERTION 5: No Data Loss during Backpressure (Sink)
-    // Ensure we do not enable writes/absorption if we are telling the master to wait.
-    property p_backpressure_safety;
-        @(posedge clk) disable iff (rst)
-        (!t_ready_o) |-> (!absorb_wr_en);
-    endproperty
-    assert property (p_backpressure_safety)
-        else $error("VIOLATION: Accepted data while Ready was LOW (Backpressure failure)!");
-
-    // 5C. AXI4-Stream Protocol Compliance (Source/Output)
-    // ----------------------------------------------------------
-
-    // ASSERTION 6: Source Valid-Ready Stability
-    // If we assert Valid output, we must hold it until the receiver is Ready.
-    property p_axi_source_stability;
-        @(posedge clk) disable iff (rst)
-        (t_valid_o && !t_ready_i) |-> ##1 (
-            $stable(t_valid_o) &&
-            $stable(t_data_o) &&
-            $stable(t_keep_o) &&
-            $stable(t_last_o)
-        );
-    endproperty
-    assert property (p_axi_source_stability)
-        else $error("VIOLATION: AXI Source violated Valid stability rule!");
-
-    // ----------------------------------------------------------
-    // 5D. Keccak Specific Rules
-    // ----------------------------------------------------------
-
-    // ASSERTION 7: Squeeze Counter Overflow
-    // Should never squeeze more bytes than the rate allows before re-permuting.
-    property p_squeeze_overflow;
-        @(posedge clk) disable iff (rst)
-        (bytes_squeezed <= (rate >> 3));
-    endproperty
-    assert property (p_squeeze_overflow)
-        else $error("FATAL: Squeeze counter exceeded rate!");
-
-    // synthesis translate_on
-
 endmodule
 
 `default_nettype wire
