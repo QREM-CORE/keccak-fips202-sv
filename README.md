@@ -3,7 +3,7 @@
 ![Language](https://img.shields.io/badge/Language-SystemVerilog-blue)
 ![Standard](https://img.shields.io/badge/Standard-FIPS%20202-green)
 ![Interface](https://img.shields.io/badge/Interface-AXI4--Stream-orange)
-![Verification](https://img.shields.io/badge/Verification-SVA%20%26%20NIST-purple)
+![Verification](https://img.shields.io/badge/Verification-NIST--Test--Cases-purple)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 A high-frequency, fully synthesizable hardware implementation of the **Keccak Permutation** and **SHA-3/SHAKE** hashing algorithms.
@@ -23,7 +23,6 @@ This core utilizes a **Multi-Cycle Iterative Architecture**. To maximize operati
 * **Standard Interface:** **AXI4-Stream** compliant Sink (Input) and Source (Output) with full backpressure support.
 * **Robust Architecture:**
     * **Internal Padding:** Automatically handles the FIPS 202 `10*1` padding rule and Domain Separation Suffixes.
-    * **Safety Features:** Integrated **SystemVerilog Assertions (SVA)** verify state machine stability, counter overflows, and AXI protocol compliance in real-time.
 * **Production Ready:** Written with `default_nettype none` to prevent implicit wire hazards and supports explicit width casting.
 
 ## 📦 Installation & Cloning
@@ -174,7 +173,7 @@ The `s_axis` and `m_axis` ports utilize the `axis_if` SystemVerilog interface (l
 
 ## 💻 Simulation & Verification
 
-This project utilizes a dual-verification strategy: **SystemVerilog Assertions (SVA)** for runtime protocol checking and **Python-generated NIST vectors** for standard compliance. Continuous Integration (CI) is handled via GitHub Actions to ensure build integrity on every Pull Request.
+This project utilizes a dual-verification strategy: **Python-generated NIST vectors** for standard compliance. Continuous Integration (CI) is handled via GitHub Actions to ensure build integrity on every Pull Request.
 
 ### 🛡️ NIST FIPS 202 Compliance
 
