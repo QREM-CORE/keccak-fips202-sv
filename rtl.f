@@ -2,7 +2,7 @@
 rtl/keccak_pkg.sv
 
 # --- Common RTL (Interfaces & Helpers) ---
-lib/common_rtl/rtl/*.sv
+lib/common_rtl/rtl/axis_if.sv
 
 # --- Keccak Step Modules ---
 rtl/chi_step.sv
