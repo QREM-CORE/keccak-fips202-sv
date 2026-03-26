@@ -98,7 +98,7 @@ jobs:
           make build.f
 
           # 2. Feed the flattened filelist natively to Slang
-          yosys -m slang -p "read_slang -f build.f; synth -top hash_sampler_unit"
+          yosys -m slang -p "read_slang -f build.f; synth -top keccak_core"
 
   # --- 4. Verilog Linter ---
   verilog-lint:
