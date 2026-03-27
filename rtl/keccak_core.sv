@@ -175,6 +175,7 @@ module keccak_core (
     // Squeeze Signals
     logic   [BYTE_ABSORB_WIDTH-1:0] bytes_squeezed;
     logic   [XOF_LEN_WIDTH-1:0]     total_bytes_squeezed;
+    logic   [5:0]                   bytes_in_this_beat; // Max 32 bytes (5 bits + 1)
 
     // 1C. Enable Wires
     // ----------------------------------------------------------
@@ -613,6 +614,12 @@ module keccak_core (
                 t_keep_o    = '0;
             end
         endcase
+
+        // Calculate bytes in this beat (popcount of t_keep_o) at the END of the combinational block
+        bytes_in_this_beat = '0;
+        for (int i = 0; i < KEEP_WIDTH; i++) begin
+            if (t_keep_o[i]) bytes_in_this_beat = bytes_in_this_beat + 1'b1;
+        end
     end
 
     // ==========================================================
@@ -715,7 +722,7 @@ module keccak_core (
             end
 
             if (update_total_squeezed_en) begin
-                total_bytes_squeezed <= total_bytes_squeezed + (DWIDTH / 8);
+                total_bytes_squeezed <= total_bytes_squeezed + bytes_in_this_beat;
             end
         end
     end

@@ -125,8 +125,14 @@ module keccak_output_unit (
 
             // XOF (SHAKE): Infinite. Rely on external stop signal or fixed len limit
             default: begin
-                if (is_xof_fixed_len_i && (total_bytes_squeezed_i + (DWIDTH/8) >= xof_len_i)) begin
-                    last_o = 1'b1;
+                if (is_xof_fixed_len_i) begin
+                    logic [XOF_LEN_WIDTH-1:0] output_bytes_this_cycle;
+                    output_bytes_this_cycle = (limit_bytes > (DWIDTH/8)) ? (DWIDTH/8) : limit_bytes;
+                    if (total_bytes_squeezed_i + output_bytes_this_cycle >= xof_len_i) begin
+                        last_o = 1'b1;
+                    end else begin
+                        last_o = 1'b0;
+                    end
                 end else begin
                     last_o = 1'b0;
                 end
