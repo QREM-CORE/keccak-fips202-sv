@@ -26,6 +26,7 @@ module keccak_core_tb;
     // DUT Control
     logic                               start_i;
     keccak_mode                         keccak_mode_i;
+    logic [XOF_LEN_WIDTH-1:0]           xof_len_i;
     logic                               stop_i;
 
     // ---------------------------------------------------------------------
@@ -56,6 +57,7 @@ module keccak_core_tb;
         .rst            (rst),
         .start_i        (start_i),
         .keccak_mode_i  (keccak_mode_i),
+        .xof_len_i      (xof_len_i),
         .stop_i         (stop_i),
 
         // Connect Sink Interface (Input to DUT)
@@ -77,6 +79,7 @@ module keccak_core_tb;
         rst = 1;
         start_i = 0;
         stop_i = 0;
+        xof_len_i = 0;
 
         // Reset Sink Interface Signals (Driver side)
         s_axis.tvalid = 0;
@@ -205,7 +208,8 @@ module keccak_core_tb;
         input string      test_name,
         input string      exp_hex,
         input int         out_bits,
-        input keccak_mode mode
+        input keccak_mode mode,
+        input int         xof_len_val
     );
         logic [7:0] collected_bytes[$];
         logic [DWIDTH-1:0] current_word;
@@ -268,12 +272,12 @@ module keccak_core_tb;
                     for (int b=0; b < bytes_remaining_in_rate_block; b++) exp_keep[b] = 1'b1;
                 end
 
-                // Exception: For SHA3 (Fixed), the very last beat of the *message* might be partial
+                // Exception: For SHA3 (Fixed) OR Bounded SHAKE, the very last beat of the *message* might be partial
                 // even if the Rate block isn't empty.
-                if (!is_shake) begin
+                if (!is_shake || (is_shake && xof_len_val > 0)) begin
                     int bytes_remaining_total = bytes_total_expected - bytes_collected_so_far;
                      if (bytes_remaining_total < (DWIDTH/8)) begin
-                        // Overwrite exp_keep for the final SHA3 beat
+                        // Overwrite exp_keep for the final beat
                         exp_keep = '0;
                         for (int b=0; b < bytes_remaining_total; b++) exp_keep[b] = 1'b1;
                     end
@@ -288,7 +292,7 @@ module keccak_core_tb;
                 end
 
                 // D. Verify Last (Strict for SHA3, loose for SHAKE)
-                if (!is_shake) begin
+                if (!is_shake || (is_shake && xof_len_val > 0)) begin
                     // SHA3 logic (Last asserts at end of hash)
                     int bytes_rem = bytes_total_expected - bytes_collected_so_far;
                     if (bytes_rem <= (DWIDTH/8)) exp_last = 1; else exp_last = 0;
@@ -317,7 +321,7 @@ module keccak_core_tb;
 
                 // --- 3. TERMINATION ---
                 if (collected_bytes.size() >= bytes_total_expected) begin
-                    if (is_shake) begin
+                    if (is_shake && xof_len_val == 0) begin
                         stop_i = 1;
                         @(posedge clk);
                         stop_i = 0;
@@ -355,7 +359,8 @@ module keccak_core_tb;
         keccak_mode mode,
         string      msg_hex_str,
         string      exp_md_hex_str,
-        int         output_len_bits
+        int         output_len_bits,
+        int         xof_len_val
     );
         logic test_done; // Shared flag to kill the watchdog safely
 
@@ -373,13 +378,14 @@ module keccak_core_tb;
                 @(posedge clk);
                 start_i <= 1;
                 keccak_mode_i <= mode;
+                xof_len_i <= xof_len_val;
                 @(posedge clk);
                 start_i <= 0;
 
                 // Run driver and monitor in parallel
                 fork
                     drive_msg(msg_hex_str);
-                    check_response(name, exp_md_hex_str, output_len_bits, mode);
+                    check_response(name, exp_md_hex_str, output_len_bits, mode, xof_len_val);
                 join
 
                 $display("    [INFO] Test execution finished normally.");
@@ -465,7 +471,13 @@ module keccak_core_tb;
 
         // Execute all
         foreach(vectors[i]) begin
-            run_test(vectors[i].name, vectors[i].mode, vectors[i].msg_hex_str, vectors[i].exp_md_hex_str, vectors[i].output_len_bits);
+            // Run with XOF len 0 (infinite mode, relies on stop_i)
+            run_test({vectors[i].name, " (Continuous)"}, vectors[i].mode, vectors[i].msg_hex_str, vectors[i].exp_md_hex_str, vectors[i].output_len_bits, 0);
+
+            // If it's SHAKE, also test with bounded length!
+            if (vectors[i].mode == SHAKE128 || vectors[i].mode == SHAKE256) begin
+                run_test({vectors[i].name, " (Bounded)"}, vectors[i].mode, vectors[i].msg_hex_str, vectors[i].exp_md_hex_str, vectors[i].output_len_bits, vectors[i].output_len_bits / 8);
+            end
         end
 
         $display("==========================================================");

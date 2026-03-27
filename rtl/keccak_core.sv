@@ -36,6 +36,7 @@ module keccak_core (
 
     input   wire                            start_i,
     input   keccak_mode                     keccak_mode_i,
+    input   wire  [XOF_LEN_WIDTH-1:0]       xof_len_i,     // 0 = Infinite/Continuous Mode, else specific byte length
     input   wire                            stop_i,
 
 `ifdef SYNTHESIS
@@ -159,6 +160,8 @@ module keccak_core (
 
     // Keccak Mode Register
     reg [MODE_SEL_WIDTH-1:0]        current_mode;
+    reg [XOF_LEN_WIDTH-1:0]         target_xof_len;
+    reg                             is_xof_fixed_len;
 
     // Absorb Phase Registers
     reg                             absorb_done; // Absorb stage fully complete flag
@@ -171,6 +174,7 @@ module keccak_core (
 
     // Squeeze Signals
     logic   [BYTE_ABSORB_WIDTH-1:0] bytes_squeezed;
+    logic   [XOF_LEN_WIDTH-1:0]     total_bytes_squeezed;
 
     // 1C. Enable Wires
     // ----------------------------------------------------------
@@ -191,6 +195,7 @@ module keccak_core (
 
     // Squeeze Enable
     logic squeeze_wr_en;
+    logic update_total_squeezed_en;
 
     // 1D. Module Wires and Registers
     // ----------------------------------------------------------
@@ -230,6 +235,9 @@ module keccak_core (
     wire [MODE_SEL_WIDTH-1:0]       KOU_MODE_I;
     wire [RATE_WIDTH-1:0]           KOU_RATE_I;
     wire [BYTE_ABSORB_WIDTH-1:0]    KOU_BYTES_SQUEEZED_I;
+    wire [XOF_LEN_WIDTH-1:0]        KOU_XOF_LEN_I;
+    wire                            KOU_IS_XOF_FIXED_LEN_I;
+    wire [XOF_LEN_WIDTH-1:0]        KOU_TOTAL_BYTES_SQUEEZED_I;
 
     wire [BYTE_ABSORB_WIDTH-1:0]    KOU_BYTES_SQUEEZED_O;
     wire                            KOU_PERM_NEEDED_O;
@@ -317,6 +325,9 @@ module keccak_core (
         .keccak_mode_i          (KOU_MODE_I),
         .rate_i                 (KOU_RATE_I),
         .bytes_squeezed_i       (KOU_BYTES_SQUEEZED_I),
+        .xof_len_i              (KOU_XOF_LEN_I),
+        .is_xof_fixed_len_i     (KOU_IS_XOF_FIXED_LEN_I),
+        .total_bytes_squeezed_i (KOU_TOTAL_BYTES_SQUEEZED_I),
 
         .bytes_squeezed_o       (KOU_BYTES_SQUEEZED_O),
         .squeeze_perm_needed_o  (KOU_PERM_NEEDED_O),
@@ -324,10 +335,13 @@ module keccak_core (
         .keep_o                 (KOU_KEEP_O),
         .last_o                 (KOU_LAST_O)
     );
-    assign KOU_STATE_ARRAY_I    = state_array;
-    assign KOU_MODE_I           = current_mode;
-    assign KOU_RATE_I           = rate;
-    assign KOU_BYTES_SQUEEZED_I = bytes_squeezed;
+    assign KOU_STATE_ARRAY_I          = state_array;
+    assign KOU_MODE_I                 = current_mode;
+    assign KOU_RATE_I                 = rate;
+    assign KOU_BYTES_SQUEEZED_I       = bytes_squeezed;
+    assign KOU_XOF_LEN_I              = target_xof_len;
+    assign KOU_IS_XOF_FIXED_LEN_I     = is_xof_fixed_len;
+    assign KOU_TOTAL_BYTES_SQUEEZED_I = total_bytes_squeezed;
 
     // ==========================================================
     // 3. 3-PROCESS CONTROL FSM
@@ -477,7 +491,8 @@ module keccak_core (
         inc_round_idx_en    = 1'b0;
 
         // Squeeze Signals
-        squeeze_wr_en       = 1'b0;
+        squeeze_wr_en            = 1'b0;
+        update_total_squeezed_en = 1'b0;
 
         case(state)
             STATE_IDLE : begin
@@ -567,6 +582,10 @@ module keccak_core (
                 t_last_o    = KOU_LAST_O;
                 t_keep_o    = KOU_KEEP_O;
 
+                if (t_valid_o && t_ready_i) begin
+                    update_total_squeezed_en = 1'b1;
+                end
+
                 if (stop_i) begin
                     init_wr_en = 1'b1;
 
@@ -618,22 +637,25 @@ module keccak_core (
             // --- Initialization & Reset ---
             if (init_wr_en) begin
                 // 1. Setup Parameters
-                current_mode    <= keccak_mode_i;
-                rate            <= KPU_RATE_O;
-                suffix          <= KPU_SUFFIX_O;
+                current_mode     <= keccak_mode_i;
+                target_xof_len   <= xof_len_i;
+                is_xof_fixed_len <= (xof_len_i != 0);
+                rate             <= KPU_RATE_O;
+                suffix           <= KPU_SUFFIX_O;
 
                 // 2. CRITICAL: Wipe the State Logic
-                state_array     <= '0;  // Must be 0 before starting new Absorb
-                bytes_absorbed  <= '0;
-                bytes_squeezed  <= '0;
-                msg_received    <= '0;
+                state_array      <= '0;  // Must be 0 before starting new Absorb
+                bytes_absorbed   <= '0;
+                bytes_squeezed   <= '0;
+                total_bytes_squeezed <= '0;
+                msg_received     <= '0;
 
                 // 3. Clear Internal Flags
-                absorb_done     <= '0;
-                has_carry_over  <= '0;
-                carry_over      <= '0;
-                carry_keep      <= '0;
-                round_idx       <= '0;
+                absorb_done      <= '0;
+                has_carry_over   <= '0;
+                carry_over       <= '0;
+                carry_keep       <= '0;
+                round_idx        <= '0;
 
             // Reset bytes absorbed after absorb permutation
             end else if (perm_en) begin
@@ -690,6 +712,10 @@ module keccak_core (
             // --- Squeeze Counters ---
             if (squeeze_wr_en) begin
                 bytes_squeezed <= KOU_BYTES_SQUEEZED_O;
+            end
+
+            if (update_total_squeezed_en) begin
+                total_bytes_squeezed <= total_bytes_squeezed + (DWIDTH / 8);
             end
         end
     end

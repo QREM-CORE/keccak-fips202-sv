@@ -37,6 +37,7 @@ module keccak_core_heavy_tb;
     // DUT Control
     logic                               start_i;
     keccak_mode                         keccak_mode_i;
+    logic [XOF_LEN_WIDTH-1:0]           xof_len_i;
     logic                               stop_i;
 
     // ---------------------------------------------------------------------
@@ -71,6 +72,7 @@ module keccak_core_heavy_tb;
         .rst            (rst),
         .start_i        (start_i),
         .keccak_mode_i  (keccak_mode_i),
+        .xof_len_i      (xof_len_i),
         .stop_i         (stop_i),
 
         // Connect Sink Interface using the 'sink' modport
@@ -92,6 +94,7 @@ module keccak_core_heavy_tb;
         rst = 1;
         start_i = 0;
         stop_i = 0;
+        xof_len_i = 0;
 
         // Reset Sink Interface Signals
         s_axis.tvalid = 0;
@@ -268,7 +271,8 @@ module keccak_core_heavy_tb;
         input string      test_name,
         input string      exp_hex,
         input int         out_bits,
-        input keccak_mode mode
+        input keccak_mode mode,
+        input int         xof_len_val
     );
         logic [7:0] collected_bytes[$];
         logic [DWIDTH-1:0] current_word;
@@ -338,11 +342,11 @@ module keccak_core_heavy_tb;
                     for (int b=0; b < bytes_remaining_in_rate_block; b++) exp_keep[b] = 1'b1;
                 end
 
-                // Exception: For SHA3 (Fixed), the very last beat of message might be partial
-                if (!is_shake) begin
+                // Exception: For SHA3 (Fixed) OR Bounded SHAKE, the very last beat of message might be partial
+                if (!is_shake || (is_shake && xof_len_val > 0)) begin
                     int bytes_remaining_total = bytes_total_expected - bytes_collected_so_far;
                      if (bytes_remaining_total < (DWIDTH/8)) begin
-                        // Overwrite exp_keep for the final SHA3 beat
+                        // Overwrite exp_keep for the final beat
                         exp_keep = '0;
                         for (int b=0; b < bytes_remaining_total; b++) exp_keep[b] = 1'b1;
                     end
@@ -357,13 +361,13 @@ module keccak_core_heavy_tb;
                 end
 
                 // D. Verify Last
-                if (!is_shake) begin
-                    // SHA3: Last asserts at end of hash
+                if (!is_shake || (is_shake && xof_len_val > 0)) begin
+                    // SHA3 logic (Last asserts at end of hash)
                     int bytes_rem = bytes_total_expected - bytes_collected_so_far;
                     if (bytes_rem <= (DWIDTH/8)) exp_last = 1; else exp_last = 0;
                     if (m_axis.tlast !== exp_last) $error("[%s] SIGNAL ERROR: tlast mismatch!", test_name);
                 end else begin
-                    // SHAKE: Last should be 0 (controlled by stop_i)
+                    // SHAKE logic (Last usually 0, dependent on implementation)
                     if (m_axis.tlast !== 0) $error("[%s] SIGNAL ERROR: SHAKE tlast should be 0!", test_name);
                 end
 
@@ -385,7 +389,7 @@ module keccak_core_heavy_tb;
 
                 // --- 3. TERMINATION ---
                 if (collected_bytes.size() >= bytes_total_expected) begin
-                    if (is_shake) begin
+                    if (is_shake && xof_len_val == 0) begin
                         stop_i = 1;
                         @(posedge clk);
                         stop_i = 0;
@@ -432,13 +436,14 @@ module keccak_core_heavy_tb;
                 @(posedge clk);
                 start_i = 1;
                 keccak_mode_i = tv.mode;
+                xof_len_i = (tv.mode == SHAKE128 || tv.mode == SHAKE256) ? (tv.output_len_bits / 8) : 0;
                 @(posedge clk);
                 start_i = 0;
 
                 // Run driver and monitor in parallel
                 fork
                     drive_msg(tv.msg_hex_str);
-                    check_response(tv.name, tv.exp_md_hex_str, tv.output_len_bits, tv.mode);
+                    check_response(tv.name, tv.exp_md_hex_str, tv.output_len_bits, tv.mode, (tv.mode == SHAKE128 || tv.mode == SHAKE256) ? (tv.output_len_bits / 8) : 0);
                 join
 
                 // Silent success indicator

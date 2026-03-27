@@ -19,6 +19,9 @@ module keccak_output_unit_tb ();
     logic [MODE_SEL_WIDTH-1:0]      keccak_mode_i;
     logic [RATE_WIDTH-1:0]          rate_i;
     logic [BYTE_ABSORB_WIDTH-1:0]   bytes_squeezed_i;
+    logic [XOF_LEN_WIDTH-1:0]       xof_len_i;
+    logic                           is_xof_fixed_len_i;
+    logic [XOF_LEN_WIDTH-1:0]       total_bytes_squeezed_i;
 
     logic [BYTE_ABSORB_WIDTH-1:0]   bytes_squeezed_o;
     logic                           squeeze_perm_needed_o;
@@ -32,6 +35,9 @@ module keccak_output_unit_tb ();
         .keccak_mode_i          (keccak_mode_i),
         .rate_i                 (rate_i),
         .bytes_squeezed_i       (bytes_squeezed_i),
+        .xof_len_i              (xof_len_i),
+        .is_xof_fixed_len_i     (is_xof_fixed_len_i),
+        .total_bytes_squeezed_i (total_bytes_squeezed_i),
 
         .bytes_squeezed_o       (bytes_squeezed_o),
         .squeeze_perm_needed_o  (squeeze_perm_needed_o),
@@ -172,6 +178,9 @@ module keccak_output_unit_tb ();
         keccak_mode_i    = SHA3_256;
         rate_i           = RATE_SHA3_256;
         bytes_squeezed_i = 0;
+        xof_len_i        = 0;
+        is_xof_fixed_len_i = 0;
+        total_bytes_squeezed_i = 0;
         #1;
 
         // Expected Data: Bytes 0x00 to 0x1F (packed into 256 bits)
@@ -251,6 +260,42 @@ module keccak_output_unit_tb ();
             $display("  Got:      %b", last_o);
         end
 
+        // ----------------------------------------------------------
+        // TC6: SHAKE128 Bounded Stream (End of Hash)
+        // Rate = 168. We squeeze at byte offset 32.
+        // Requested XOF len is 34. Total bytes squeezed is 32.
+        // This beat will squeeze the final 2 bytes.
+        // Expected: Keep mask 0x00000003 (2 bytes), Last is HIGH.
+        // ----------------------------------------------------------
+        $display("\nTC6: SHAKE128 Bounded Length Reached");
+        keccak_mode_i          = SHAKE128;
+        rate_i                 = RATE_SHAKE128;
+        bytes_squeezed_i       = 32;
+        xof_len_i              = 34; // user requested 34 bytes
+        is_xof_fixed_len_i     = 1;
+        total_bytes_squeezed_i = 32; // we have output 32 so far
+        #1;
+
+        for(i=0; i<32; i++) exp_data_build[i*8 +: 8] = (i+32);
+        check_results("TC6", exp_data_build, 32'h00000003, 1'b1, 1'b0);
+
+        // ----------------------------------------------------------
+        // TC7: SHAKE128 Bounded Stream (Not the End)
+        // Requested XOF len is 68. Total bytes squeezed is 32.
+        // This beat will output a full 32 bytes (total 64).
+        // Expected: Keep mask 0xFFFFFFFF, Last is LOW.
+        // ----------------------------------------------------------
+        $display("\nTC7: SHAKE128 Bounded Length Not Reached");
+        keccak_mode_i          = SHAKE128;
+        rate_i                 = RATE_SHAKE128;
+        bytes_squeezed_i       = 32;
+        xof_len_i              = 68;
+        is_xof_fixed_len_i     = 1;
+        total_bytes_squeezed_i = 32;
+        #1;
+
+        for(i=0; i<32; i++) exp_data_build[i*8 +: 8] = (i+32);
+        check_results("TC7", exp_data_build, 32'hFFFFFFFF, 1'b0, 1'b0);
 
         $display("\n--- Testbench Complete ---");
     end

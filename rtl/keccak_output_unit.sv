@@ -22,6 +22,9 @@ module keccak_output_unit (
     input  wire  [MODE_SEL_WIDTH-1:0]       keccak_mode_i,
     input  wire  [RATE_WIDTH-1:0]           rate_i,
     input  wire  [BYTE_ABSORB_WIDTH-1:0]    bytes_squeezed_i,      // Counter from FSM
+    input  wire  [XOF_LEN_WIDTH-1:0]        xof_len_i,             // Target XOF bytes requested
+    input  wire                             is_xof_fixed_len_i,    // Flag for fixed-length XOF (0 = continuous)
+    input  wire  [XOF_LEN_WIDTH-1:0]        total_bytes_squeezed_i,// Total bytes sent so far out of XOF target
 
     output logic [BYTE_ABSORB_WIDTH-1:0]    bytes_squeezed_o,      // Next counter value
     output logic                            squeeze_perm_needed_o, // Flag: Rate is empty!
@@ -75,14 +78,31 @@ module keccak_output_unit (
     // Note: rate_i is bits, convert to bytes.
     assign bytes_remaining_in_rate = (rate_i >> 3) - bytes_squeezed_i;
 
+    logic [XOF_LEN_WIDTH-1:0] bytes_remaining_req;
+    assign bytes_remaining_req = (is_xof_fixed_len_i && xof_len_i > total_bytes_squeezed_i) ? (xof_len_i - total_bytes_squeezed_i) : 0;
+
+    logic [XOF_LEN_WIDTH-1:0] limit_bytes;
     always_comb begin
-        // If we have more than 32 bytes left in the rate, keep all 32.
-        if (bytes_remaining_in_rate >= (DWIDTH/8)) begin
+        if (is_xof_fixed_len_i && (keccak_mode_i == SHAKE128 || keccak_mode_i == SHAKE256)) begin
+            // We have an XOF mode with a specific length
+            if (bytes_remaining_in_rate < bytes_remaining_req) begin
+                limit_bytes = bytes_remaining_in_rate;
+            end else begin
+                limit_bytes = bytes_remaining_req;
+            end
+        end else begin
+            limit_bytes = bytes_remaining_in_rate;
+        end
+    end
+
+    always_comb begin
+        // If we have more than 32 bytes left in the limit, keep all 32.
+        if (limit_bytes >= (DWIDTH/8)) begin
             keep_o = '1; // All ones
         end else begin
-            // We hit the end of the rate block. Mask the valid bytes.
+            // We hit the end of the rate block or XOF limit. Mask the valid bytes.
             // Example: 5 bytes left -> keep_o = 00...0011111
-            keep_o = (1 << bytes_remaining_in_rate) - 1;
+            keep_o = (1 << limit_bytes) - 1;
         end
     end
 
@@ -103,8 +123,14 @@ module keccak_output_unit (
             SHA3_256: last_o = (bytes_squeezed_o >= 32);
             SHA3_512: last_o = (bytes_squeezed_o >= 64);
 
-            // XOF (SHAKE): Infinite. Rely on external stop signal.
-            default:  last_o = 1'b0;
+            // XOF (SHAKE): Infinite. Rely on external stop signal or fixed len limit
+            default: begin
+                if (is_xof_fixed_len_i && (total_bytes_squeezed_i + (DWIDTH/8) >= xof_len_i)) begin
+                    last_o = 1'b1;
+                end else begin
+                    last_o = 1'b0;
+                end
+            end
         endcase
     end
 
