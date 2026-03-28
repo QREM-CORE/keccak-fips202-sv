@@ -8,7 +8,7 @@
 
 A high-frequency, fully synthesizable hardware implementation of the **Keccak Permutation** and **SHA-3/SHAKE** hashing algorithms.
 
-This core utilizes a **Multi-Cycle Iterative Architecture**. To maximize operating frequency ($F_{max}$), the Keccak round function is decomposed into 5 distinct clock cycles ($\theta, \rho, \pi, \chi, \iota$). This reduces the combinatorial path depth significantly compared to single-cycle implementations, making it suitable for high-speed FPGA and ASIC targets.
+This core utilizes a **1-Cycle Round Architecture**. To maximize performance while maintaining a high operating frequency ($F_{max}$), the Keccak round function ($\theta, \rho, \pi, \chi, \iota$) is executed in a single clock cycle. This significantly reduces permutation latency compared to multi-cycle iterative designs, making it ideal for high-throughput applications.
 
 ## 🚀 Key Features
 
@@ -103,9 +103,9 @@ The design is orchestrated by a centralized FSM with the following states:
   * Appends final `1` bit according to `10*1` padding rule
 
 * **PERMUTATION PIPELINE**
-  * Each Keccak round is decomposed into 5 FSM states:
-    * `THETA → RHO → PI → CHI → IOTA`
-  * A full permutation requires **24 rounds × 5 cycles = 120 cycles**
+  * Each Keccak round leads to a single FSM state transition:
+    * `STATE_PERMUTE`
+  * A full permutation requires **24 rounds × 1 cycle = 24 cycles**
 
 * **SQUEEZE**
   * Streams output blocks via AXI4-Stream
@@ -124,13 +124,12 @@ With a 64-bit (8-byte) data bus, all FIPS 202 Keccak rates (e.g., 136 bytes for 
 
 ## ⏱️ Performance Characteristics
 
-* **Permutation latency:** 120 cycles per Keccak-f[1600]
+* **Permutation latency:** 24 cycles per Keccak-f[1600]
 * **Absorb throughput:** 64 bits per accepted AXI beat
 * **Squeeze throughput:** 64 bits per cycle (subject to backpressure)
 * **Critical path:** Single Keccak step (Θ, ρ, π, χ, or ι)
 
-The multi-cycle round decomposition significantly reduces combinational depth,
-enabling higher achievable clock frequencies compared to single-cycle designs.
+The 1-cycle round architecture provides a massive leap in throughput, achieving 24-cycle latency per block while maintaining an efficient critical path suitable for modern FPGA and ASIC targets.
 
 
 ## 🔌 Signal Description
@@ -162,7 +161,7 @@ The `s_axis` and `m_axis` ports utilize the `axis_if` SystemVerilog interface (l
 
 ## ⚠️ Integration Notes
 
-* **Latency & Backpressure:** The core deasserts `s_axis.tready` for 120 cycles during the permutation phase. Upstream buffers (FIFOs) must be sized to handle this pause if streaming continuously.
+* **Latency & Backpressure:** The core deasserts `s_axis.tready` for 24 cycles during the permutation phase. Upstream buffers (FIFOs) must be sized to handle this pause if streaming continuously.
 * **SHAKE Bounded vs Infinite Streams:** In XOF modes (SHAKE128/256), the `m_axis` output can operate in two ways. Driving `xof_len_i` with a strictly positive byte limit configures the core to auto-terminate (`tlast` is asserted automatically). Leaving `xof_len_i = 0` triggers infinite-length continuous generation, requiring manual assertion of `stop_i` to break the stream.
 * **Partial Bytes:** `s_axis.tkeep` is fully respected, allowing messages that are not 64-bit aligned.
 

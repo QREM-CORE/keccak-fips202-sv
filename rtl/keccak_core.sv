@@ -5,13 +5,15 @@
  * - Fully compliant FIPS 202 Keccak Permutation Core.
  * - Supports SHA3-256, SHA3-512, SHAKE128, and SHAKE256 modes via 'keccak_mode_i'.
  * - Implements standard AXI4-Stream Sink/Source interfaces for data IO.
- * - Features a Multi-Cycle Iterative Architecture (Theta, Rho, Pi, Chi, Iota) for high frequency.
+ * - Features a 1-Cycle Round Architecture: all five step mappings (θ, ρ, π, χ, ι)
+ *   execute combinationally in a single clock cycle per round.
  * - Handles arbitrary message lengths including correct '10*1' padding logic.
  * - Supports infinite output generation (XOF) and hardware-bounded length limits for SHAKE modes.
  *
  * Performance & Latency:
- * - Architecture: Iterative decomposition (1 Keccak Round = 5 Clock Cycles).
- * - Permutation Latency: 120 clock cycles per block (24 rounds * 5 cycles/round).
+ * - Architecture: 1-Cycle Round (1 Keccak Round = 1 Clock Cycle).
+ * - Permutation Latency: 24 clock cycles per block (24 rounds * 1 cycle/round).
+ * - Critical Path: Theta (~5 gate levels) + Chi (~2 gate levels) = ~7 gate levels / ~3 LUT levels.
  * - Squeeze Output: Combinational (Data is valid immediately upon entering Squeeze state).
  *
  * Interface Notes:
@@ -101,11 +103,7 @@ module keccak_core (
         STATE_IDLE,
         STATE_ABSORB,
         STATE_SUFFIX_PADDING,
-        STATE_THETA,
-        STATE_RHO,
-        STATE_PI,
-        STATE_CHI,
-        STATE_IOTA,
+        STATE_PERMUTE,
         STATE_SQUEEZE
     } state_t;
     state_t state, next_state;
@@ -127,7 +125,6 @@ module keccak_core (
 
     // KSU Permutation Registers
     reg [ROUND_INDEX_SIZE-1:0]      round_idx;
-    reg [STEP_SEL_WIDTH-1:0]        step_sel;
 
     // Keccak Parameter Setup Registers
     reg [RATE_WIDTH-1:0]            rate; // Rate in BITS (e.g., 1088 for SHA3-256)
@@ -182,7 +179,6 @@ module keccak_core (
     // Keccak Step Unit (KSU) Module Wires
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KSU_STATE_ARRAY_I;
     wire [ROUND_INDEX_SIZE-1:0]     KSU_ROUND_INDEX_I;
-    wire [STEP_SEL_WIDTH-1:0]       KSU_STEP_SEL_I;
 
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KSU_STATE_ARRAY_O;
 
@@ -245,17 +241,15 @@ module keccak_core (
 
     // 2B. KECCAK STEP UNIT (KSU)
     // ----------------------------------------------------------
-    // Keccak Step Mapping Operations Module
+    // Keccak Round Unit: Executes all 5 step mappings (θ→ρ→π→χ→ι) in 1 cycle.
     keccak_step_unit KSU (
         .state_array_i  (KSU_STATE_ARRAY_I),
         .round_index_i  (KSU_ROUND_INDEX_I),
-        .step_sel_i     (KSU_STEP_SEL_I),
 
         .state_array_o  (KSU_STATE_ARRAY_O)
     );
     assign KSU_STATE_ARRAY_I    = state_array;
     assign KSU_ROUND_INDEX_I    = round_idx;
-    assign KSU_STEP_SEL_I       = step_sel;
 
     // 2C. KECCAK ABSORB UNIT (KAU) (Now handles Optional Padding)
     // ----------------------------------------------------------
@@ -340,7 +334,7 @@ module keccak_core (
             STATE_ABSORB : begin
                 // PRIORITY 1: If current rate block is full, run permutation
                 if (bytes_absorbed == max_bytes_absorbed) begin
-                    next_state = STATE_THETA;
+                    next_state = STATE_PERMUTE;
 
                 // PRIORITY 2: Message fully received, move on to padding stage
                 end else if (msg_received) begin
@@ -357,27 +351,11 @@ module keccak_core (
             end
 
             STATE_SUFFIX_PADDING : begin
-                next_state = STATE_THETA;
+                next_state = STATE_PERMUTE;
             end
 
-            // ------------ PERMUTATION STEP MAPPING STATES ------------
-            STATE_THETA : begin
-                next_state = STATE_RHO;
-            end
-
-            STATE_RHO : begin
-                next_state = STATE_PI;
-            end
-
-            STATE_PI : begin
-                next_state = STATE_CHI;
-            end
-
-            STATE_CHI : begin
-                next_state = STATE_IOTA;
-            end
-
-            STATE_IOTA : begin
+            // ------------ PERMUTATION (1 Round Per Cycle) ------------
+            STATE_PERMUTE : begin
                 // Keccak-f[1600] requires 24 rounds (Indices 0 to 23)
                 if (round_idx == 'd23) begin
                     if (absorb_done) begin
@@ -386,7 +364,7 @@ module keccak_core (
                         next_state = STATE_ABSORB;
                     end
                 end else begin
-                    next_state = STATE_THETA;
+                    next_state = STATE_PERMUTE;
                 end
             end
             // ---------------------------------------------------------
@@ -404,7 +382,7 @@ module keccak_core (
 
                     // B. Check Rate Empty -> Re-Permute (SHAKE)
                     end else if (KOU_PERM_NEEDED_O) begin
-                        next_state = STATE_THETA;
+                        next_state = STATE_PERMUTE;
 
                     // C. Continue Squeezing
                     end else begin
@@ -439,7 +417,6 @@ module keccak_core (
 
         // ----- Internal Control Signals -----
         state_array_wr_en   = 1'b0;
-        step_sel            = IDLE_STEP;
         init_wr_en          = 1'b0;
 
         // Absorb Wires
@@ -447,7 +424,7 @@ module keccak_core (
         msg_received_wr_en  = 1'b0;
         complete_absorb_en  = 1'b0;
 
-        // Step Mapping
+        // Permutation
         perm_en             = 1'b0;
         rst_round_idx_en    = 1'b0;
         inc_round_idx_en    = 1'b0;
@@ -493,42 +470,17 @@ module keccak_core (
                 perm_en             = 1'b1;
             end
 
-            // ------------ PERMUTATION STEP MAPPING STATES ------------
-            STATE_THETA : begin
+            // ------------ PERMUTATION (1 Round Per Cycle) ------------
+            STATE_PERMUTE : begin
                 state_array_wr_en   = 1'b1;
-                step_sel            = THETA_STEP;
                 state_array_in_sel  = KSU_SEL;
-            end
 
-            STATE_RHO : begin
-                state_array_wr_en   = 1'b1;
-                step_sel            = RHO_STEP;
-                state_array_in_sel  = KSU_SEL;
-            end
-
-            STATE_PI : begin
-                state_array_wr_en   = 1'b1;
-                step_sel            = PI_STEP;
-                state_array_in_sel  = KSU_SEL;
-            end
-
-            STATE_CHI : begin
-                state_array_wr_en   = 1'b1;
-                step_sel            = CHI_STEP;
-                state_array_in_sel  = KSU_SEL;
-            end
-
-            STATE_IOTA : begin
                 // Keccak-f[1600] requires 24 rounds (Indices 0 to 23)
                 if (round_idx == 'd23) begin
                     rst_round_idx_en = 1'b1;
                 end else begin
                     inc_round_idx_en = 1'b1;
                 end
-
-                state_array_wr_en   = 1'b1;
-                step_sel            = IOTA_STEP;
-                state_array_in_sel  = KSU_SEL;
             end
             // ---------------------------------------------------------
 
