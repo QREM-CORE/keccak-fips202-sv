@@ -22,9 +22,6 @@ module keccak_absorb_unit_tb ();
     logic [DWIDTH-1:0]            msg_i;
     logic [KEEP_WIDTH-1:0]        keep_i;
     logic [BYTE_ABSORB_WIDTH-1:0] bytes_absorbed_o;
-    logic [DWIDTH-1:0]            carry_over_o;
-    logic                         has_carry_over_o;
-    logic [KEEP_WIDTH-1:0]        carry_keep_o;
 
     // Instance
     keccak_absorb_unit dut (
@@ -36,10 +33,7 @@ module keccak_absorb_unit_tb ();
         .pad_en_i           (1'b0),
         .suffix_i           (8'h00),
         .state_array_o      (state_out),
-        .bytes_absorbed_o   (bytes_absorbed_o),
-        .carry_over_o       (carry_over_o),
-        .has_carry_over_o   (has_carry_over_o),
-        .carry_keep_o       (carry_keep_o)
+        .bytes_absorbed_o   (bytes_absorbed_o)
     );
 
     // ==========================================================
@@ -67,10 +61,7 @@ module keccak_absorb_unit_tb ();
     task automatic check_results(
         input string test_name,
         input int exp_bytes_abs,
-        input logic exp_has_carry,
-        input logic [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] exp_state,
-        input logic [DWIDTH-1:0] exp_carry_data = '0,    // Default to 0
-        input logic [KEEP_WIDTH-1:0] exp_carry_keep = '0 // Default to 0 (Added Checker)
+        input logic [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] exp_state
     );
         int error_count = 0;
 
@@ -81,28 +72,7 @@ module keccak_absorb_unit_tb ();
             error_count++;
         end
 
-        // 2. Check Carry Flag
-        if (has_carry_over_o !== exp_has_carry) begin
-            $error("[%s] FAIL: Carry Flag mismatch. Expected: %0b, Got: %0b",
-                   test_name, exp_has_carry, has_carry_over_o);
-            error_count++;
-        end
-
-        // 3. Check Carry Data
-        if (exp_has_carry && (carry_over_o !== exp_carry_data)) begin
-             $error("[%s] FAIL: Carry Data mismatch.\n\tExpected: %h\n\tGot:      %h",
-                   test_name, exp_carry_data, carry_over_o);
-            error_count++;
-        end
-
-        // 4. Check Carry Keep
-        if (carry_keep_o !== exp_carry_keep) begin
-             $error("[%s] FAIL: Carry Keep mismatch.\n\tExpected: %h\n\tGot:      %h",
-                   test_name, exp_carry_keep, carry_keep_o);
-            error_count++;
-        end
-
-        // 5. Check State Lanes
+        // 2. Check State Lanes
         for (int x = 0; x < ROW_SIZE; x++) begin
             for (int y = 0; y < COL_SIZE; y++) begin
                 if (state_out[x][y] !== exp_state[x][y]) begin
@@ -151,7 +121,7 @@ module keccak_absorb_unit_tb ();
         expected_state = '0;
         expected_state[0][0] = 64'h1111_2222_3333_4444;
 
-        check_results("TC1", 8, 0, expected_state);
+        check_results("TC1", 8, expected_state);
         print_state_fips(state_out);
 
 
@@ -170,7 +140,7 @@ module keccak_absorb_unit_tb ();
         expected_state[1][0] = 64'h0000_0000_DEAD_BEEF;
 
         // Expected: 8 + 4 = 12 bytes absorbed.
-        check_results("TC2", 12, 0, expected_state);
+        check_results("TC2", 12, expected_state);
         print_state_fips(state_out);
 
 
@@ -191,7 +161,7 @@ module keccak_absorb_unit_tb ();
         expected_state = '0;
         expected_state[1][3] = 64'hAAAA_AAAA_BBBB_BBBB; // Lane 16 (16 % 5 = 1, 16 / 5 = 3)
 
-        check_results("TC3", 136, 0, expected_state, '0, '0);
+        check_results("TC3", 136, expected_state);
 
         print_state_fips(state_out);
 
@@ -212,7 +182,7 @@ module keccak_absorb_unit_tb ();
         expected_state[3][1] = 64'hCCCC_CCCC_CCCC_CCCC;
 
         // Fits exactly 8 bytes (since space is 72 - 64 = 8).
-        check_results("TC4", 72, 0, expected_state, '0, '0);
+        check_results("TC4", 72, expected_state);
 
         print_state_fips(state_out);
 
@@ -235,7 +205,7 @@ module keccak_absorb_unit_tb ();
         expected_state[0][0] = 64'h0000_00AA_BBCC_DDEE;
 
         // Check: 5 bytes absorbed, Carry=0, Expected State, Expected Carry Data=0, Expected Keep=0
-        check_results("TC5", 5, 0, expected_state, '0, '0);
+        check_results("TC5", 5, expected_state);
         print_state_fips(state_out);
 
         // ----------------------------------------------------------
@@ -255,7 +225,7 @@ module keccak_absorb_unit_tb ();
         expected_state[0][4] = 64'h9999_8888_7777_6666; // Lane 20 is x=0, y=4.
 
         // It fits exactly 168-160 = 8 bytes. No carry.
-        check_results("TC6", 168, 0, expected_state, '0, '0);
+        check_results("TC6", 168, expected_state);
 
         print_state_fips(state_out);
 
@@ -274,7 +244,7 @@ module keccak_absorb_unit_tb ();
         expected_state = '0;
         expected_state[0][0] = 64'h1234_5678_9ABC_DEF0;
 
-        check_results("TC7", 8, 0, expected_state);
+        check_results("TC7", 8, expected_state);
         print_state_fips(state_out);
 
         // ==========================================================
@@ -299,7 +269,7 @@ module keccak_absorb_unit_tb ();
         expected_state[3][0] = 64'hEEEE_EEEE_EEEE_EEEE; // 24-31
 
         // Expected: 24 + 8 = 32 bytes. No carry.
-        check_results("TC8", 32, 0, expected_state, '0, '0);
+        check_results("TC8", 32, expected_state);
         print_state_fips(state_out);
 
 
@@ -328,7 +298,7 @@ module keccak_absorb_unit_tb ();
         expected_state = '0;
         expected_state[0][0] = 64'h0000_0000_0000_00AA; // Garbage 0xFFs must NOT appear here
 
-        check_results("TC10", 1, 0, expected_state, '0, '0);
+        check_results("TC10", 1, expected_state);
         print_state_fips(state_out);
 
         $display("\n--- Testbench Complete ---");

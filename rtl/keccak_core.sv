@@ -141,10 +141,7 @@ module keccak_core (
     // Absorb Phase Registers
     reg                             absorb_done; // Absorb stage fully complete flag
     reg     [BYTE_ABSORB_WIDTH-1:0] bytes_absorbed; // # of bytes absorbed in the current rate block
-    reg     [DWIDTH-1:0]            carry_over;     // Partial AXI beat that crosses rate boundary and must be
-                                                    // re-absorbed in the next cycle
-    reg                             has_carry_over; // Carry over flag
-    reg     [KEEP_WIDTH-1:0]        carry_keep;
+
     reg                             msg_received;   // Full message has been received
 
     // Squeeze Signals
@@ -200,9 +197,6 @@ module keccak_core (
 
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KAU_STATE_ARRAY_O;
     wire [BYTE_ABSORB_WIDTH-1:0]    KAU_BYTES_ABSORBED_O;
-    wire                            KAU_HAS_CARRY_OVER_O;
-    wire [KEEP_WIDTH-1:0]           KAU_CARRY_KEEP_O;
-    wire [DWIDTH-1:0]               KAU_CARRY_OVER_O;
 
     // Suffix Padder Unit (Collapsed into KAU)
 
@@ -229,10 +223,9 @@ module keccak_core (
     assign max_bytes_absorbed   = rate >> 3;
 
     // Calculate Ready
-    // We are ready if we aren't full, aren't processing overflow, and aren't done.
+    // We are ready if we aren't full and aren't done.
     logic internal_ready;
     assign internal_ready = (bytes_absorbed != max_bytes_absorbed) &&
-                            (!has_carry_over) &&
                             (!msg_received);
 
     // ==========================================================
@@ -277,16 +270,13 @@ module keccak_core (
         .suffix_i           (KAU_SUFFIX_I),
 
         .state_array_o      (KAU_STATE_ARRAY_O),
-        .bytes_absorbed_o   (KAU_BYTES_ABSORBED_O),
-        .has_carry_over_o   (KAU_HAS_CARRY_OVER_O),
-        .carry_keep_o       (KAU_CARRY_KEEP_O),
-        .carry_over_o       (KAU_CARRY_OVER_O)
+        .bytes_absorbed_o   (KAU_BYTES_ABSORBED_O)
     );
     assign KAU_STATE_ARRAY_I    = state_array;
     assign KAU_RATE_I           = rate;
     assign KAU_BYTES_ABSORBED_I = bytes_absorbed;
-    assign KAU_MSG_I            = has_carry_over ? carry_over : t_data_i;
-    assign KAU_KEEP_I           = has_carry_over ? carry_keep : t_keep_i;
+    assign KAU_MSG_I            = t_data_i;
+    assign KAU_KEEP_I           = t_keep_i;
     assign KAU_PAD_EN_I         = (state == STATE_SUFFIX_PADDING);
     assign KAU_SUFFIX_I         = suffix;
 
@@ -352,19 +342,15 @@ module keccak_core (
                 if (bytes_absorbed == max_bytes_absorbed) begin
                     next_state = STATE_THETA;
 
-                // PRIORITY 2: Check if there is a unhandled carry over
-                end else if (has_carry_over) begin
-                    next_state = STATE_ABSORB;
-
-                // PRIORITY 3: Message fully received, move on to padding stage
+                // PRIORITY 2: Message fully received, move on to padding stage
                 end else if (msg_received) begin
                     next_state = STATE_SUFFIX_PADDING;
 
-                // PRIORITY 4: Check if there is valid input and to process if so
+                // PRIORITY 3: Check if there is valid input and to process if so
                 end else if (t_valid_i && internal_ready) begin
                     next_state = STATE_ABSORB;
 
-                // PRIORITY 5: Message not yet fully received, waiting for t_valid
+                // PRIORITY 4: Message not yet fully received, waiting for t_valid
                 end else begin
                     next_state = STATE_ABSORB;
                 end
@@ -484,19 +470,13 @@ module keccak_core (
                 if (bytes_absorbed == max_bytes_absorbed) begin
                     perm_en = 1'b1;
 
-                // PRIORITY 2: Check if there is a unhandled carry over
-                end else if (has_carry_over) begin
-                    absorb_wr_en = 1'b1;
-                    state_array_wr_en = 1'b1;
-                    state_array_in_sel = ABSORB_SEL;
-
-                // PRIORITY 3: Message fully received, move on to padding stage
+                // PRIORITY 2: Message fully received, move on to padding stage
                 end else if (msg_received) begin
                     // Need this extra register for edge case:
-                    // - when message matches rate (msg_received, no carry over)
+                    // - when message matches rate (msg_received)
                     complete_absorb_en = 1'b1;
 
-                // PRIORITY 4: Check if there is valid input and to process if so
+                // PRIORITY 3: Check if there is valid input and to process if so
                 end else if (t_valid_i && internal_ready) begin
                     absorb_wr_en = 1'b1;
                     state_array_wr_en = 1'b1;
@@ -609,9 +589,6 @@ module keccak_core (
             // Absorb Signals
             absorb_done         <= 'b0;
             bytes_absorbed      <= 'b0;
-            carry_over          <= 'b0;
-            has_carry_over      <= 'b0;
-            carry_keep          <= 'b0;
 
             // Squeeze Signals
             bytes_squeezed      <= 'b0;
@@ -634,9 +611,7 @@ module keccak_core (
 
                 // 3. Clear Internal Flags
                 absorb_done      <= '0;
-                has_carry_over   <= '0;
-                carry_over       <= '0;
-                carry_keep       <= '0;
+
                 round_idx        <= '0;
 
             // Reset bytes absorbed after absorb permutation
@@ -667,13 +642,7 @@ module keccak_core (
             if (absorb_wr_en) begin
                 bytes_absorbed  <= KAU_BYTES_ABSORBED_O;
 
-                if (KAU_HAS_CARRY_OVER_O) begin
-                    has_carry_over  <= 1'b1;
-                    carry_over      <= KAU_CARRY_OVER_O;
-                    carry_keep      <= KAU_CARRY_KEEP_O;
-                end else begin
-                    has_carry_over  <= 1'b0;
-                end
+
             end
             // Set flag for absorb completion
             if (complete_absorb_en) begin

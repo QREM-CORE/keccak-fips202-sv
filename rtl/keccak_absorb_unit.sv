@@ -5,13 +5,11 @@
  * - Performs the XOR absorption phase of the Keccak sponge construction.
  * - Accepts a variable-width message chunk (up to 64 bits) and absorbs it
  * into the current State Array at the offset specified by 'bytes_absorbed_i'.
- * - Handles three data scenarios:
- * 1. Standard Absorb: Input fits entirely within the remaining Rate block.
- * 2. Block Full: Input fills the Rate block exactly.
- * 3. Straddle/Carry: Input exceeds the remaining Rate block space. Logic
- * splits the data, absorbing the lower portion and outputting the
- * remainder as 'carry_over_o' to be fed back in the next cycle.
+ * - With DWIDTH=64, all FIPS 202 rates are evenly divisible by 8 bytes,
+ * so rate-boundary straddling is structurally impossible and no carry-over
+ * logic is needed.
  * - Supports byte-granular validity via 'keep_i' masking.
+ * - Also handles FIPS 202 suffix and 10*1 padding injection via pad_en_i.
  */
 
 `default_nettype none
@@ -30,17 +28,11 @@ module keccak_absorb_unit (
     input   wire  [SUFFIX_WIDTH-1:0]        suffix_i,
 
     output  logic [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] state_array_o,
-    output  logic [BYTE_ABSORB_WIDTH-1:0]   bytes_absorbed_o,
-    output  logic                           has_carry_over_o,
-    output  logic [DWIDTH-1:0]              carry_over_o,
-    output  logic [KEEP_WIDTH-1:0]          carry_keep_o
+    output  logic [BYTE_ABSORB_WIDTH-1:0]   bytes_absorbed_o
 );
     localparam int INPUT_LANE_NUM = DWIDTH/LANE_SIZE;
     localparam int BYTES_PER_LANE = LANE_SIZE/BYTE_SIZE;
     localparam int TOTAL_BYTES = DWIDTH/BYTE_SIZE;
-    localparam int CARRY_KEEP_LOWER_INDEX = 8;
-    localparam int CARRY_OVER_LOWER_INDEX = 64;
-    localparam int BYTE_DIV_32_WIDTH = 3;
     localparam int INPUT_BYTES_NUM = DWIDTH/8;
 
     // Physical Limit: The absolute max rate defined by the spec (SHAKE128)
@@ -65,37 +57,14 @@ module keccak_absorb_unit (
     logic [RATE_WIDTH-1:0] rate_bytes;
     assign rate_bytes = rate_i >> 3; // Convert bits to bytes
 
-    logic [RATE_WIDTH-1:0] space_in_block;
-    assign space_in_block = rate_bytes - bytes_absorbed_i;
-
     logic [$clog2(KEEP_WIDTH + 1)-1:0] valid_byte_count;
     assign valid_byte_count = $countones(keep_i);
 
     // ==========================================================
-    // 3. PROCESS CARRY (DYNAMIC LOGIC)
+    // 3. PROCESS ABSORB (No Carry Over with 64-bit DWIDTH)
     // ==========================================================
     always_comb begin
-        // Check if input data exceeds the remaining space in the rate block
-        if (valid_byte_count > space_in_block) begin
-            // Carry Over Needed
-            has_carry_over_o = 'b1;
-            bytes_absorbed_o = rate_bytes;
-
-            // Calculate Carry Data
-            // We take the upper bytes (that didn't fit) and SHIFT them down to 0.
-            // This aligns them for the NEXT absorption cycle.
-            // Example: space=8. We use msg[63:0]. Carry starts at msg[64].
-            // We shift msg right by 64 bits.
-            carry_over_o = DWIDTH'(msg_masked >> (space_in_block * 8));
-            carry_keep_o = KEEP_WIDTH'(keep_i >> space_in_block);
-
-        end else begin
-            // Carry not needed
-            has_carry_over_o    = '0;
-            bytes_absorbed_o    = bytes_absorbed_i + valid_byte_count;
-            carry_keep_o        = '0;
-            carry_over_o        = '0;
-        end
+        bytes_absorbed_o = bytes_absorbed_i + valid_byte_count;
     end
 
     // ==========================================================

@@ -95,7 +95,7 @@ The design is orchestrated by a centralized FSM with the following states:
 * **ABSORB**
   * Accepts AXI4-Stream input data
   * Handles partial words using `t_keep`
-  * Supports carry-over when rate boundaries are crossed
+  * With 64-bit bus, all rates align perfectly—no carry-over logic needed
   * Automatically schedules permutations when the rate is full
 
 * **SUFFIX_PADDING**
@@ -114,16 +114,13 @@ The design is orchestrated by a centralized FSM with the following states:
     * Hash completion (SHA3)
     * External `stop_i` (SHAKE)
 
-### Absorption with Rate Boundary Carry-Over
+### Absorption with 64-bit Alignment
 
-The absorb unit supports input fragments that cross rate boundaries without data loss.
+With a 64-bit (8-byte) data bus, all FIPS 202 Keccak rates (e.g., 136 bytes for SHA3-256, 72 bytes for SHA3-512) are evenly divisible by 8. This means continuous AXI transfers will always perfectly fill a rate block without straddling the boundary. No carry-over buffering or re-alignment logic is required, significantly simplifying the absorb datapath.
 
-* Partial input words are tracked using `t_keep`
-* Excess bytes are buffered internally (`carry_over`)
-* Carry-over data is automatically re-injected on the next absorb cycle
+* Partial input words on the final `tlast` beat are tracked using `t_keep`
+* Rate block boundaries always align with 8-byte transfer boundaries
 * No external re-alignment or padding is required from the user
-
-This allows seamless hashing of arbitrarily-sized messages using wide AXI data paths.
 
 ## ⏱️ Performance Characteristics
 
