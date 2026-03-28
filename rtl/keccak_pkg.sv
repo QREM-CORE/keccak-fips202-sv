@@ -40,6 +40,7 @@ package keccak_pkg;
     parameter int SUFFIX_LEN_WIDTH = 3;
 
     parameter int BYTE_ABSORB_WIDTH = 8;
+    parameter int XOF_LEN_WIDTH = 16;
 
     // Different step selector options
     typedef enum {

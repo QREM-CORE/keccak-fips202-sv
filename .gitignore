@@ -5,3 +5,4 @@ transcript
 *.log
 *.txt
 obj_dir/
+build.f

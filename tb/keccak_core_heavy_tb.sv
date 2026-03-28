@@ -37,6 +37,7 @@ module keccak_core_heavy_tb;
     // DUT Control
     logic                               start_i;
     keccak_mode                         keccak_mode_i;
+    logic [XOF_LEN_WIDTH-1:0]           xof_len_i;
     logic                               stop_i;
 
     // ---------------------------------------------------------------------
@@ -71,6 +72,7 @@ module keccak_core_heavy_tb;
         .rst            (rst),
         .start_i        (start_i),
         .keccak_mode_i  (keccak_mode_i),
+        .xof_len_i      (xof_len_i),
         .stop_i         (stop_i),
 
         // Connect Sink Interface using the 'sink' modport
@@ -92,6 +94,7 @@ module keccak_core_heavy_tb;
         rst = 1;
         start_i = 0;
         stop_i = 0;
+        xof_len_i = 0;
 
         // Reset Sink Interface Signals
         s_axis.tvalid = 0;
@@ -268,7 +271,8 @@ module keccak_core_heavy_tb;
         input string      test_name,
         input string      exp_hex,
         input int         out_bits,
-        input keccak_mode mode
+        input keccak_mode mode,
+        input int         xof_len_val
     );
         logic [7:0] collected_bytes[$];
         logic [DWIDTH-1:0] current_word;
@@ -330,22 +334,30 @@ module keccak_core_heavy_tb;
                 // B. Calculate Expected Keep
                 exp_keep = '0;
 
-                // If DUT has >= 32 bytes left in current block, expect full beat.
-                // Otherwise, expect partial beat at block boundary.
-                if (bytes_remaining_in_rate_block >= (DWIDTH/8)) begin
-                    exp_keep = '1;
-                end else begin
-                    for (int b=0; b < bytes_remaining_in_rate_block; b++) exp_keep[b] = 1'b1;
-                end
+                begin
+                     // It is limited by the smallest of:
+                     // 1. Up to bus width (32)
+                     // 2. Remaining bytes in the Hash length (bytes_remaining_total)
+                     // 3. Remaining bytes in the current rate block (bytes_remaining_in_rate_block)
+                     int expected_bytes_this_beat;
 
-                // Exception: For SHA3 (Fixed), the very last beat of message might be partial
-                if (!is_shake) begin
-                    int bytes_remaining_total = bytes_total_expected - bytes_collected_so_far;
-                     if (bytes_remaining_total < (DWIDTH/8)) begin
-                        // Overwrite exp_keep for the final SHA3 beat
-                        exp_keep = '0;
-                        for (int b=0; b < bytes_remaining_total; b++) exp_keep[b] = 1'b1;
-                    end
+                     expected_bytes_this_beat = (DWIDTH/8); // Start with full 32
+
+                     // Apply Rate Limit
+                     if (bytes_remaining_in_rate_block < expected_bytes_this_beat) begin
+                         expected_bytes_this_beat = bytes_remaining_in_rate_block;
+                     end
+
+                     // Apply Total Hash Length Limit (Fixed length or Bounded SHAKE)
+                     if (!is_shake || (is_shake && xof_len_val > 0)) begin
+                         int bytes_remaining_total = bytes_total_expected - bytes_collected_so_far;
+                         if (bytes_remaining_total < expected_bytes_this_beat) begin
+                             expected_bytes_this_beat = bytes_remaining_total;
+                         end
+                     end
+
+                     // Build exp_keep
+                     for (int b=0; b < expected_bytes_this_beat; b++) exp_keep[b] = 1'b1;
                 end
 
                 // C. Verify Keep
@@ -357,13 +369,19 @@ module keccak_core_heavy_tb;
                 end
 
                 // D. Verify Last
-                if (!is_shake) begin
-                    // SHA3: Last asserts at end of hash
+                if (!is_shake || (is_shake && xof_len_val > 0)) begin
+                    // SHA3/Bounded XOF logic (Last asserts at extremely final beat)
                     int bytes_rem = bytes_total_expected - bytes_collected_so_far;
-                    if (bytes_rem <= (DWIDTH/8)) exp_last = 1; else exp_last = 0;
+
+                    int expected_bytes_this_beat2;
+                    expected_bytes_this_beat2 = (DWIDTH/8);
+                    if (bytes_remaining_in_rate_block < expected_bytes_this_beat2)
+                        expected_bytes_this_beat2 = bytes_remaining_in_rate_block;
+
+                    if (bytes_rem <= expected_bytes_this_beat2) exp_last = 1; else exp_last = 0;
                     if (m_axis.tlast !== exp_last) $error("[%s] SIGNAL ERROR: tlast mismatch!", test_name);
                 end else begin
-                    // SHAKE: Last should be 0 (controlled by stop_i)
+                    // SHAKE logic (Last usually 0, dependent on implementation)
                     if (m_axis.tlast !== 0) $error("[%s] SIGNAL ERROR: SHAKE tlast should be 0!", test_name);
                 end
 
@@ -385,7 +403,7 @@ module keccak_core_heavy_tb;
 
                 // --- 3. TERMINATION ---
                 if (collected_bytes.size() >= bytes_total_expected) begin
-                    if (is_shake) begin
+                    if (is_shake && xof_len_val == 0) begin
                         stop_i = 1;
                         @(posedge clk);
                         stop_i = 0;
@@ -432,13 +450,14 @@ module keccak_core_heavy_tb;
                 @(posedge clk);
                 start_i = 1;
                 keccak_mode_i = tv.mode;
+                xof_len_i = (tv.mode == SHAKE128 || tv.mode == SHAKE256) ? (tv.output_len_bits / 8) : 0;
                 @(posedge clk);
                 start_i = 0;
 
                 // Run driver and monitor in parallel
                 fork
                     drive_msg(tv.msg_hex_str);
-                    check_response(tv.name, tv.exp_md_hex_str, tv.output_len_bits, tv.mode);
+                    check_response(tv.name, tv.exp_md_hex_str, tv.output_len_bits, tv.mode, (tv.mode == SHAKE128 || tv.mode == SHAKE256) ? (tv.output_len_bits / 8) : 0);
                 join
 
                 // Silent success indicator

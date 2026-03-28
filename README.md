@@ -19,7 +19,7 @@ This core utilizes a **Multi-Cycle Iterative Architecture**. To maximize operati
     * **Area:** Padding logic shares the XOR-plane resources directly within the Absorb Unit.
 * **Runtime Configurable:** Switch between 4 modes dynamically via input signals:
     * **Fixed-Length:** SHA3-256, SHA3-512
-    * **Extendable-Output (XOF):** SHAKE128, SHAKE256
+    * **Extendable-Output (XOF):** SHAKE128, SHAKE256 (supports both infinite streaming and hardware-bounded limits)
 * **Standard Interface:** **AXI4-Stream** compliant Sink (Input) and Source (Output) with full backpressure support.
 * **Robust Architecture:**
     * **Internal Padding:** Automatically handles the FIPS 202 `10*1` padding rule and Domain Separation Suffixes.
@@ -68,7 +68,7 @@ The core follows a strict **Start → Absorb → Permute → Squeeze** lifecycle
 4. **Squeeze Phase**
    * Output is streamed via AXI4-Stream source
    * For SHA3 modes, output terminates automatically
-   * For SHAKE modes, output continues indefinitely until `stop_i` is asserted
+   * For SHAKE modes, output can execute indefinitely until an external `stop_i` is asserted, or terminate automatically if a requested `xof_len_i` byte-boundary is reached.
 
 ⚠️ **Important:** `keccak_mode_i` must remain stable after `start_i` until the core returns to `STATE_IDLE`.
 
@@ -138,9 +138,6 @@ enabling higher achievable clock frequencies compared to single-cycle designs.
 
 ## 🔌 Signal Description
 
-### Parameters
-* `DWIDTH`: Input/Output Data Width (Default: **256 bits**)
-
 ### Ports
 
 | Signal Group | Name | Direction | Type | Description |
@@ -149,7 +146,8 @@ enabling higher achievable clock frequencies compared to single-cycle designs.
 | | `rst` | Input | Wire | Synchronous Active-High Reset |
 | **Control** | `start_i` | Input | Wire | Pulse high to reset FSM and start new hash |
 | | `keccak_mode_i` | Input | Wire | `00`: SHA3-256, `01`: SHA3-512, `10`: SHAKE128, `11`: SHAKE256 |
-| | `stop_i` | Input | Wire | Stops output generation (Required for XOF modes) |
+| | `xof_len_i` | Input | Wire | Target output length in bytes for SHAKE (0 = infinite streaming) |
+| | `stop_i` | Input | Wire | Stops output generation (Required for infinite XOF modes) |
 | **AXI Stream** | `s_axis` | Sink | Interface | **Sink Interface** (Input). Accepts Message Data. |
 | | `m_axis` | Source | Interface | **Source Interface** (Output). Outputs Hash Data. |
 
@@ -168,7 +166,7 @@ The `s_axis` and `m_axis` ports utilize the `axis_if` SystemVerilog interface (l
 ## ⚠️ Integration Notes
 
 * **Latency & Backpressure:** The core deasserts `s_axis.tready` for 120 cycles during the permutation phase. Upstream buffers (FIFOs) must be sized to handle this pause if streaming continuously.
-* **SHAKE Infinite Stream:** In XOF modes (SHAKE128/256), the `m_axis` output stream is **infinite**. You *must* assert `stop_i` or drop `m_axis.tready` to halt data generation.
+* **SHAKE Bounded vs Infinite Streams:** In XOF modes (SHAKE128/256), the `m_axis` output can operate in two ways. Driving `xof_len_i` with a strictly positive byte limit configures the core to auto-terminate (`tlast` is asserted automatically). Leaving `xof_len_i = 0` triggers infinite-length continuous generation, requiring manual assertion of `stop_i` to break the stream.
 * **Partial Bytes:** `s_axis.tkeep` is fully respected, allowing messages that are not 256-bit aligned.
 
 ## 💻 Simulation & Verification

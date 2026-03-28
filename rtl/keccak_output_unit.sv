@@ -7,7 +7,8 @@
  * - Linearizes the 3D State Array (Lane[x][y]) into a bitstream for output.
  * - Manages Flow Control:
  * 1. Fixed-Length (SHA3-256/512): Asserts 'last_o' when the digest size is reached.
- * 2. Variable-Length (SHAKE128/256): Runs indefinitely until externally stopped.
+ * 2. Variable-Length (SHAKE128/256): Runs indefinitely until externally stopped, or
+ *    automatically terminates when 'xof_len_i' bytes are reached.
  * 3. Rate Boundaries: Detects when the Rate block is exhausted via 'squeeze_perm_needed_o'
  * to trigger the FSM to permute the state again (for multi-block XOF output).
  */
@@ -22,6 +23,9 @@ module keccak_output_unit (
     input  wire  [MODE_SEL_WIDTH-1:0]       keccak_mode_i,
     input  wire  [RATE_WIDTH-1:0]           rate_i,
     input  wire  [BYTE_ABSORB_WIDTH-1:0]    bytes_squeezed_i,      // Counter from FSM
+    input  wire  [XOF_LEN_WIDTH-1:0]        xof_len_i,             // Target XOF bytes requested
+    input  wire                             is_xof_fixed_len_i,    // Flag for fixed-length XOF (0 = continuous)
+    input  wire  [XOF_LEN_WIDTH-1:0]        total_bytes_squeezed_i,// Total bytes sent so far out of XOF target
 
     output logic [BYTE_ABSORB_WIDTH-1:0]    bytes_squeezed_o,      // Next counter value
     output logic                            squeeze_perm_needed_o, // Flag: Rate is empty!
@@ -75,14 +79,34 @@ module keccak_output_unit (
     // Note: rate_i is bits, convert to bytes.
     assign bytes_remaining_in_rate = (rate_i >> 3) - bytes_squeezed_i;
 
+    logic [5:0] output_bytes_this_cycle;
+
     always_comb begin
-        // If we have more than 32 bytes left in the rate, keep all 32.
-        if (bytes_remaining_in_rate >= (DWIDTH/8)) begin
+        // Default: Assume we can output a full 32-byte bus this beat.
+        output_bytes_this_cycle = (DWIDTH/8);
+
+        // Constraint 1: Rate Limit
+        if (bytes_remaining_in_rate < output_bytes_this_cycle) begin
+            output_bytes_this_cycle = bytes_remaining_in_rate[5:0];
+        end
+
+        // Constraint 2: Bounded XOF Target Emptying
+        if (is_xof_fixed_len_i && (keccak_mode_i == SHAKE128 || keccak_mode_i == SHAKE256)) begin
+            logic [XOF_LEN_WIDTH-1:0] diff;
+            diff = xof_len_i - total_bytes_squeezed_i;
+            if (diff < output_bytes_this_cycle) begin
+                output_bytes_this_cycle = diff[5:0];
+            end
+        end
+    end
+
+    always_comb begin
+        // If we are outputting a full 32 bytes, fill the mask
+        if (output_bytes_this_cycle == (DWIDTH/8)) begin
             keep_o = '1; // All ones
         end else begin
-            // We hit the end of the rate block. Mask the valid bytes.
-            // Example: 5 bytes left -> keep_o = 00...0011111
-            keep_o = (1 << bytes_remaining_in_rate) - 1;
+            // Synthesizes cleanly into a 6-to-32 bit decoder
+            keep_o = (1 << output_bytes_this_cycle) - 1;
         end
     end
 
@@ -103,8 +127,18 @@ module keccak_output_unit (
             SHA3_256: last_o = (bytes_squeezed_o >= 32);
             SHA3_512: last_o = (bytes_squeezed_o >= 64);
 
-            // XOF (SHAKE): Infinite. Rely on external stop signal.
-            default:  last_o = 1'b0;
+            // XOF (SHAKE): Infinite. Rely on external stop signal or fixed len limit
+            default: begin
+                if (is_xof_fixed_len_i) begin
+                    if (total_bytes_squeezed_i + output_bytes_this_cycle >= xof_len_i) begin
+                        last_o = 1'b1;
+                    end else begin
+                        last_o = 1'b0;
+                    end
+                end else begin
+                    last_o = 1'b0;
+                end
+            end
         endcase
     end
 

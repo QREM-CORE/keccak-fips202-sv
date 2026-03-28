@@ -26,6 +26,7 @@ module keccak_core_tb;
     // DUT Control
     logic                               start_i;
     keccak_mode                         keccak_mode_i;
+    logic [XOF_LEN_WIDTH-1:0]           xof_len_i;
     logic                               stop_i;
 
     // ---------------------------------------------------------------------
@@ -56,6 +57,7 @@ module keccak_core_tb;
         .rst            (rst),
         .start_i        (start_i),
         .keccak_mode_i  (keccak_mode_i),
+        .xof_len_i      (xof_len_i),
         .stop_i         (stop_i),
 
         // Connect Sink Interface (Input to DUT)
@@ -77,6 +79,7 @@ module keccak_core_tb;
         rst = 1;
         start_i = 0;
         stop_i = 0;
+        xof_len_i = 0;
 
         // Reset Sink Interface Signals (Driver side)
         s_axis.tvalid = 0;
@@ -205,7 +208,8 @@ module keccak_core_tb;
         input string      test_name,
         input string      exp_hex,
         input int         out_bits,
-        input keccak_mode mode
+        input keccak_mode mode,
+        input int         xof_len_val
     );
         logic [7:0] collected_bytes[$];
         logic [DWIDTH-1:0] current_word;
@@ -249,8 +253,7 @@ module keccak_core_tb;
             // Use interface signals for monitoring
             if (m_axis.tvalid && m_axis.tready) begin
 
-                // --- 1. CALCULATE EXPECTED SIGNALS ---
-
+                // --- 1. SIGNAL VERIFICATION ---
                 // A. Determine where we are inside the Keccak "Rate Block"
                 // The DUT output pattern depends on the Rate, not on how many bytes the test requested.
                 bytes_in_current_rate_block = bytes_squeezed_from_dut_total % rate_bytes;
@@ -259,24 +262,30 @@ module keccak_core_tb;
                 // B. Calculate Expected Keep for THIS beat
                 exp_keep = '0;
 
-                // If the DUT has >= 32 bytes left in its current permuted block, it gives a full beat.
-                // If it has < 32 bytes left, it gives a partial beat (the boundary).
-                if (bytes_remaining_in_rate_block >= (DWIDTH/8)) begin
-                    exp_keep = '1; // Full Keep (FFFF)
-                end else begin
-                    // Partial Keep (e.g., if 8 bytes left, keep is 000000FF)
-                    for (int b=0; b < bytes_remaining_in_rate_block; b++) exp_keep[b] = 1'b1;
-                end
+                begin
+                     // It is limited by the smallest of:
+                     // 1. Up to bus width (32)
+                     // 2. Remaining bytes in the Hash length (bytes_remaining_total)
+                     // 3. Remaining bytes in the current rate block (bytes_remaining_in_rate_block)
+                     int expected_bytes_this_beat;
 
-                // Exception: For SHA3 (Fixed), the very last beat of the *message* might be partial
-                // even if the Rate block isn't empty.
-                if (!is_shake) begin
-                    int bytes_remaining_total = bytes_total_expected - bytes_collected_so_far;
-                     if (bytes_remaining_total < (DWIDTH/8)) begin
-                        // Overwrite exp_keep for the final SHA3 beat
-                        exp_keep = '0;
-                        for (int b=0; b < bytes_remaining_total; b++) exp_keep[b] = 1'b1;
-                    end
+                     expected_bytes_this_beat = (DWIDTH/8); // Start with full 32
+
+                     // Apply Rate Limit
+                     if (bytes_remaining_in_rate_block < expected_bytes_this_beat) begin
+                         expected_bytes_this_beat = bytes_remaining_in_rate_block;
+                     end
+
+                     // Apply Total Hash Length Limit (Fixed length or Bounded SHAKE)
+                     if (!is_shake || (is_shake && xof_len_val > 0)) begin
+                         int bytes_remaining_total = bytes_total_expected - bytes_collected_so_far;
+                         if (bytes_remaining_total < expected_bytes_this_beat) begin
+                             expected_bytes_this_beat = bytes_remaining_total;
+                         end
+                     end
+
+                     // Build exp_keep
+                     for (int b=0; b < expected_bytes_this_beat; b++) exp_keep[b] = 1'b1;
                 end
 
                 // C. Verify Keep
@@ -287,11 +296,17 @@ module keccak_core_tb;
                     $display("\tGot Keep:      %b", m_axis.tkeep);
                 end
 
-                // D. Verify Last (Strict for SHA3, loose for SHAKE)
-                if (!is_shake) begin
-                    // SHA3 logic (Last asserts at end of hash)
+                // D. Verify Last (Strict for SHA3 / Bounded SHAKE)
+                if (!is_shake || (is_shake && xof_len_val > 0)) begin
+                    // SHA3/Bounded XOF logic (Last asserts at extremely final beat)
                     int bytes_rem = bytes_total_expected - bytes_collected_so_far;
-                    if (bytes_rem <= (DWIDTH/8)) exp_last = 1; else exp_last = 0;
+
+                    int expected_bytes_this_beat2;
+                    expected_bytes_this_beat2 = (DWIDTH/8);
+                    if (bytes_remaining_in_rate_block < expected_bytes_this_beat2)
+                        expected_bytes_this_beat2 = bytes_remaining_in_rate_block;
+
+                    if (bytes_rem <= expected_bytes_this_beat2) exp_last = 1; else exp_last = 0;
                     if (m_axis.tlast !== exp_last) $error("[%s] SIGNAL ERROR: tlast mismatch!", test_name);
                 end else begin
                     // SHAKE logic (Last usually 0, dependent on implementation)
@@ -304,10 +319,9 @@ module keccak_core_tb;
 
                 for (i = 0; i < (DWIDTH/8); i++) begin
                     if (current_keep[i]) begin
-                        // Increment the DUT tracker (valid byte received from hardware)
                         bytes_squeezed_from_dut_total++;
 
-                        // Only store if the test case actually requires more data
+                        // Only store data if test requires more
                         if (collected_bytes.size() < bytes_total_expected) begin
                             collected_bytes.push_back(current_word[i*8 +: 8]);
                             bytes_collected_so_far++;
@@ -317,7 +331,7 @@ module keccak_core_tb;
 
                 // --- 3. TERMINATION ---
                 if (collected_bytes.size() >= bytes_total_expected) begin
-                    if (is_shake) begin
+                    if (is_shake && xof_len_val == 0) begin
                         stop_i = 1;
                         @(posedge clk);
                         stop_i = 0;
@@ -355,7 +369,8 @@ module keccak_core_tb;
         keccak_mode mode,
         string      msg_hex_str,
         string      exp_md_hex_str,
-        int         output_len_bits
+        int         output_len_bits,
+        int         xof_len_val
     );
         logic test_done; // Shared flag to kill the watchdog safely
 
@@ -373,13 +388,14 @@ module keccak_core_tb;
                 @(posedge clk);
                 start_i <= 1;
                 keccak_mode_i <= mode;
+                xof_len_i <= xof_len_val;
                 @(posedge clk);
                 start_i <= 0;
 
                 // Run driver and monitor in parallel
                 fork
                     drive_msg(msg_hex_str);
-                    check_response(name, exp_md_hex_str, output_len_bits, mode);
+                    check_response(name, exp_md_hex_str, output_len_bits, mode, xof_len_val);
                 join
 
                 $display("    [INFO] Test execution finished normally.");
@@ -447,8 +463,9 @@ module keccak_core_tb;
         // Short Message
         vectors.push_back(test_vector_t'{"SHAKE128 Short", SHAKE128, "84f6cb3dc77b9bf856caf54e", "56538d52b26f967bb9405e0f54fdf6e2", 128});
 
-        // Long Message
-        vectors.push_back(test_vector_t'{"SHAKE128 Long", SHAKE128, "a6fe00064257aa318b621c5eb311d32bb8004c2fa1a969d205d71762cc5d2e633907992629d1b69d9557ff6d5e8deb454ab00f6e497c89a4fea09e257a6fa2074bd818ceb5981b3e3faefd6e720f2d1edd9c5e4a5c51e5009abf636ed5bca53fe159c8287014a1bd904f5c8a7501625f79ac81eb618f478ce21cae6664acffb30572f059e1ad0fc2912264e8f1ca52af26c8bf78e09d75f3dd9fc734afa8770abe0bd78c90cc2ff448105fb16dd2c5b7edd8611a62e537db9331f5023e16d6ec150cc6e706d7c7fcbfff930c7281831fd5c4aff86ece57ed0db882f59a5fe403105d0592ca38a081fed84922873f538ee774f13b8cc09bd0521db4374aec69f4bae6dcb66455822c0b84c91a3474ffac2ad06f0a4423cd2c6a49d4f0d6242d6a1890937b5d9835a5f0ea5b1d01884d22a6c1718e1f60b3ab5e232947c76ef70b344171083c688093b5f1475377e3069863", "3109d9472ca436e805c6b3db2251a9bc", 128});
+        // Edge Case: Long squeeze that crosses the 168-byte rate boundary (200 bytes)
+        // Verified against NIST: SHAKE128 Msg="cc" (1 byte)
+        vectors.push_back(test_vector_t'{"SHAKE128 Boundary Cross", SHAKE128, "cc", "4dd4b0004a7d9e613a0f488b4846f804015f0f8ccdba5f7c16810bbc5a1c6fb254efc81969c5eb49e682babae02238a31fd2708e418d7b754e21e4b75b65e7d39b5b42d739066e7c63595daf26c3a6a2f7001ee636c7cb2a6c69b1ec7314a21ff24833eab61258327517b684928c7444380a6eacd60a6e9400da37a61050e4cd1fbdd05dde0901ea2f3f67567f7c9bf7aa53590f29c94cb4226e77c68e1600e4765bea40b3644b4d1e93eda6fb0380377c12d5bb9df4728099e88b55d820c7f827034d809e756831", 1600});
 
         // =====================================================================
         // 4. SHAKE256 (XOF - Rate = 1088 bits)
@@ -465,7 +482,13 @@ module keccak_core_tb;
 
         // Execute all
         foreach(vectors[i]) begin
-            run_test(vectors[i].name, vectors[i].mode, vectors[i].msg_hex_str, vectors[i].exp_md_hex_str, vectors[i].output_len_bits);
+            // Run with XOF len 0 (infinite mode, relies on stop_i)
+            run_test({vectors[i].name, " (Continuous)"}, vectors[i].mode, vectors[i].msg_hex_str, vectors[i].exp_md_hex_str, vectors[i].output_len_bits, 0);
+
+            // If it's SHAKE, also test with bounded length!
+            if (vectors[i].mode == SHAKE128 || vectors[i].mode == SHAKE256) begin
+                run_test({vectors[i].name, " (Bounded)"}, vectors[i].mode, vectors[i].msg_hex_str, vectors[i].exp_md_hex_str, vectors[i].output_len_bits, vectors[i].output_len_bits / 8);
+            end
         end
 
         $display("==========================================================");
