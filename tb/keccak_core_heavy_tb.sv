@@ -47,10 +47,18 @@ module keccak_core_heavy_tb;
     // NOTE: We use DWIDTH from keccak_pkg.
 
     // Sink Interface (Input to Core)
-    axis_if #(.DWIDTH(DWIDTH)) s_axis();
+    logic [DWIDTH-1:0]      s_axis_tdata;
+    logic                   s_axis_tvalid;
+    logic                   s_axis_tlast;
+    logic [KEEP_WIDTH-1:0]  s_axis_tkeep;
+    logic                   s_axis_tready;
 
     // Source Interface (Output from Core)
-    axis_if #(.DWIDTH(DWIDTH)) m_axis();
+    logic [DWIDTH-1:0]      m_axis_tdata;
+    logic                   m_axis_tvalid;
+    logic                   m_axis_tlast;
+    logic [KEEP_WIDTH-1:0]  m_axis_tkeep;
+    logic                   m_axis_tready;
 
     // Test Vector Definition
     typedef struct {
@@ -76,10 +84,18 @@ module keccak_core_heavy_tb;
         .stop_i         (stop_i),
 
         // Connect Sink Interface using the 'sink' modport
-        .s_axis         (s_axis.sink),
+        .s_axis_tdata   (s_axis_tdata),
+        .s_axis_tvalid  (s_axis_tvalid),
+        .s_axis_tlast   (s_axis_tlast),
+        .s_axis_tkeep   (s_axis_tkeep),
+        .s_axis_tready  (s_axis_tready),
 
         // Connect Source Interface using the 'source' modport
-        .m_axis         (m_axis.source)
+        .m_axis_tdata   (m_axis_tdata),
+        .m_axis_tvalid  (m_axis_tvalid),
+        .m_axis_tlast   (m_axis_tlast),
+        .m_axis_tkeep   (m_axis_tkeep),
+        .m_axis_tready  (m_axis_tready)
     );
 
     // =====================================================================
@@ -97,13 +113,13 @@ module keccak_core_heavy_tb;
         xof_len_i = 0;
 
         // Reset Sink Interface Signals
-        s_axis.tvalid = 0;
-        s_axis.tlast  = 0;
-        s_axis.tkeep  = 0;
-        s_axis.tdata  = 0;
+        s_axis_tvalid = 0;
+        s_axis_tlast  = 0;
+        s_axis_tkeep  = 0;
+        s_axis_tdata  = 0;
 
         // Reset Source Interface Backpressure
-        m_axis.tready = 0;
+        m_axis_tready = 0;
 
         @(posedge clk);
         @(posedge clk);
@@ -208,14 +224,14 @@ module keccak_core_heavy_tb;
         // Handle empty message case (Len=0)
         if (total_bytes == 0) begin
             @(posedge clk);
-            while (!s_axis.tready) @(posedge clk);
-            s_axis.tvalid <= 1;
-            s_axis.tlast  <= 1;
-            s_axis.tkeep  <= '0;
-            s_axis.tdata  <= '0;
+            while (!s_axis_tready) @(posedge clk);
+            s_axis_tvalid <= 1;
+            s_axis_tlast  <= 1;
+            s_axis_tkeep  <= '0;
+            s_axis_tdata  <= '0;
             @(posedge clk);
-            s_axis.tvalid <= 0;
-            s_axis.tlast  <= 0;
+            s_axis_tvalid <= 0;
+            s_axis_tlast  <= 0;
             return;
         end
 
@@ -226,17 +242,17 @@ module keccak_core_heavy_tb;
             @(posedge clk);
 
             // Flow Control: Drive if valid is low (idle) or ready is high (accepted)
-            if (!s_axis.tvalid || s_axis.tready) begin
-                s_axis.tvalid <= 1;
-                s_axis.tdata  <= '0;
-                s_axis.tkeep  <= '0;
-                s_axis.tlast  <= 0;
+            if (!s_axis_tvalid || s_axis_tready) begin
+                s_axis_tvalid <= 1;
+                s_axis_tdata  <= '0;
+                s_axis_tkeep  <= '0;
+                s_axis_tlast  <= 0;
 
                 // Pack up to 32 bytes (BYTES_PER_BEAT) into tdata
                 for (k = 0; k < BYTES_PER_BEAT; k++) begin
                     if ((sent_bytes + k) < total_bytes) begin
-                        s_axis.tdata[k*8 +: 8] <= msg_bytes[sent_bytes + k];
-                        s_axis.tkeep[k]        <= 1'b1;
+                        s_axis_tdata[k*8 +: 8] <= msg_bytes[sent_bytes + k];
+                        s_axis_tkeep[k]        <= 1'b1;
                     end
                 end
 
@@ -244,7 +260,7 @@ module keccak_core_heavy_tb;
 
                 // Assert T_LAST if this is the final chunk
                 if (sent_bytes >= total_bytes) begin
-                    s_axis.tlast <= 1'b1;
+                    s_axis_tlast <= 1'b1;
                 end
 
             end
@@ -252,15 +268,15 @@ module keccak_core_heavy_tb;
 
         // Cleanup
         @(posedge clk);
-        while (!s_axis.tready) @(posedge clk); // Wait for final handshake if pending
-        s_axis.tvalid <= 0;
-        s_axis.tlast  <= 0;
-        s_axis.tkeep  <= 0;
+        while (!s_axis_tready) @(posedge clk); // Wait for final handshake if pending
+        s_axis_tvalid <= 0;
+        s_axis_tlast  <= 0;
+        s_axis_tkeep  <= 0;
 
         // Verify tready behavior post-transaction
         #(1);
-        if (s_axis.tready === 1'bx) begin
-             $error("[FAIL] s_axis.tready is X (unknown) after driving message!");
+        if (s_axis_tready === 1'bx) begin
+             $error("[FAIL] s_axis_tready is X (unknown) after driving message!");
         end
     endtask
 
@@ -317,12 +333,12 @@ module keccak_core_heavy_tb;
             default:  rate_bytes = 136;
         endcase
 
-        m_axis.tready = 1;
+        m_axis_tready = 1;
 
         forever begin
             @(posedge clk);
 
-            if (m_axis.tvalid && m_axis.tready) begin
+            if (m_axis_tvalid && m_axis_tready) begin
 
                 // --- 1. SIGNAL VERIFICATION ---
 
@@ -361,11 +377,11 @@ module keccak_core_heavy_tb;
                 end
 
                 // C. Verify Keep
-                if (m_axis.tkeep !== exp_keep) begin
+                if (m_axis_tkeep !== exp_keep) begin
                     $error("[%s] SIGNAL ERROR: tkeep mismatch at DUT byte offset %0d",
                            test_name, bytes_squeezed_from_dut_total);
                     $display("\tExpected Keep: %b", exp_keep);
-                    $display("\tGot Keep:      %b", m_axis.tkeep);
+                    $display("\tGot Keep:      %b", m_axis_tkeep);
                 end
 
                 // D. Verify Last
@@ -379,15 +395,15 @@ module keccak_core_heavy_tb;
                         expected_bytes_this_beat2 = bytes_remaining_in_rate_block;
 
                     if (bytes_rem <= expected_bytes_this_beat2) exp_last = 1; else exp_last = 0;
-                    if (m_axis.tlast !== exp_last) $error("[%s] SIGNAL ERROR: tlast mismatch!", test_name);
+                    if (m_axis_tlast !== exp_last) $error("[%s] SIGNAL ERROR: tlast mismatch!", test_name);
                 end else begin
                     // SHAKE logic (Last usually 0, dependent on implementation)
-                    if (m_axis.tlast !== 0) $error("[%s] SIGNAL ERROR: SHAKE tlast should be 0!", test_name);
+                    if (m_axis_tlast !== 0) $error("[%s] SIGNAL ERROR: SHAKE tlast should be 0!", test_name);
                 end
 
                 // --- 2. DATA COLLECTION ---
-                current_word = m_axis.tdata;
-                current_keep = m_axis.tkeep;
+                current_word = m_axis_tdata;
+                current_keep = m_axis_tkeep;
 
                 for (i = 0; i < (DWIDTH/8); i++) begin
                     if (current_keep[i]) begin
@@ -413,7 +429,7 @@ module keccak_core_heavy_tb;
             end
         end
 
-        m_axis.tready = 0;
+        m_axis_tready = 0;
 
         // --- Result Reconstruction ---
         for (i = 0; i < bytes_total_expected; i++) begin
