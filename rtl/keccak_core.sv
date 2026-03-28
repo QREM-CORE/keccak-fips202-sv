@@ -39,8 +39,6 @@ module keccak_core (
     input   wire  [XOF_LEN_WIDTH-1:0]       xof_len_i,     // 0 = Infinite/Continuous Mode, else specific byte length
     input   wire                            stop_i,
 
-`ifdef SYNTHESIS
-    // Expanded ports for synthesis top-level (to avoid "unconnected interface port" errors in Slang/Yosys)
     input  wire  [DWIDTH-1:0]               s_axis_tdata,
     input  wire                             s_axis_tvalid,
     input  wire                             s_axis_tlast,
@@ -52,13 +50,6 @@ module keccak_core (
     output wire                             m_axis_tlast,
     output wire  [KEEP_WIDTH-1:0]           m_axis_tkeep,
     input  wire                             m_axis_tready
-`else
-    // AXI4-Stream Interface - Sink (Input)
-    axis_if.sink                            s_axis,
-
-    // AXI4-Stream Interface - Source (Output)
-    axis_if.source                          m_axis
-`endif
 );
     // Dataflow Summary:
     // AXI Sink -> Absorb (KAU) -> State Array
@@ -84,34 +75,18 @@ module keccak_core (
     logic                   t_ready_i;
 
     // Assignments: Sink (Input from Interface -> Internal)
-`ifdef SYNTHESIS
     assign t_data_i       = s_axis_tdata;
     assign t_valid_i      = s_axis_tvalid;
     assign t_last_i       = s_axis_tlast;
     assign t_keep_i       = s_axis_tkeep;
     assign s_axis_tready  = t_ready_o;
-`else
-    assign t_data_i       = s_axis.tdata;
-    assign t_valid_i      = s_axis.tvalid;
-    assign t_last_i       = s_axis.tlast;
-    assign t_keep_i       = s_axis.tkeep;
-    assign s_axis.tready  = t_ready_o; // Output to Interface
-`endif
 
     // Assignments: Source (Internal -> Output to Interface)
-`ifdef SYNTHESIS
     assign m_axis_tdata   = t_data_o;
     assign m_axis_tvalid  = t_valid_o;
     assign m_axis_tlast   = t_last_o;
     assign m_axis_tkeep   = t_keep_o;
     assign t_ready_i      = m_axis_tready;
-`else
-    assign m_axis.tdata   = t_data_o;
-    assign m_axis.tvalid  = t_valid_o;
-    assign m_axis.tlast   = t_last_o;
-    assign m_axis.tkeep   = t_keep_o;
-    assign t_ready_i      = m_axis.tready; // Input from Interface
-`endif
 
 
     // ==========================================================
