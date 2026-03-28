@@ -178,6 +178,7 @@ module keccak_core (
 
     // Keccak Step Unit (KSU) Module Wires
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KSU_STATE_ARRAY_I;
+    wire                            KSU_PERM_EN_I;
     wire [ROUND_INDEX_SIZE-1:0]     KSU_ROUND_INDEX_I;
 
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KSU_STATE_ARRAY_O;
@@ -244,11 +245,13 @@ module keccak_core (
     // Keccak Round Unit: Executes all 5 step mappings (θ→ρ→π→χ→ι) in 1 cycle.
     keccak_step_unit KSU (
         .state_array_i  (KSU_STATE_ARRAY_I),
+        .perm_en_i      (KSU_PERM_EN_I),
         .round_index_i  (KSU_ROUND_INDEX_I),
 
         .state_array_o  (KSU_STATE_ARRAY_O)
     );
     assign KSU_STATE_ARRAY_I    = state_array;
+    assign KSU_PERM_EN_I        = (state == STATE_PERMUTE);
     assign KSU_ROUND_INDEX_I    = round_idx;
 
     // 2C. KECCAK ABSORB UNIT (KAU) (Now handles Optional Padding)
