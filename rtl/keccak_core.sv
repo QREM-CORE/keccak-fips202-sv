@@ -7,7 +7,7 @@
  * - Implements standard AXI4-Stream Sink/Source interfaces for data IO.
  * - Features a Multi-Cycle Iterative Architecture (Theta, Rho, Pi, Chi, Iota) for high frequency.
  * - Handles arbitrary message lengths including correct '10*1' padding logic.
- * - Supports infinite output generation (XOF) for SHAKE modes with external 'stop_i' control.
+ * - Supports infinite output generation (XOF) and hardware-bounded length limits for SHAKE modes.
  *
  * Performance & Latency:
  * - Architecture: Iterative decomposition (1 Keccak Round = 5 Clock Cycles).

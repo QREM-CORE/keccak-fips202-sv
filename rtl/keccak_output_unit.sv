@@ -7,7 +7,8 @@
  * - Linearizes the 3D State Array (Lane[x][y]) into a bitstream for output.
  * - Manages Flow Control:
  * 1. Fixed-Length (SHA3-256/512): Asserts 'last_o' when the digest size is reached.
- * 2. Variable-Length (SHAKE128/256): Runs indefinitely until externally stopped.
+ * 2. Variable-Length (SHAKE128/256): Runs indefinitely until externally stopped, or
+ *    automatically terminates when 'xof_len_i' bytes are reached.
  * 3. Rate Boundaries: Detects when the Rate block is exhausted via 'squeeze_perm_needed_o'
  * to trigger the FSM to permute the state again (for multi-block XOF output).
  */
