@@ -171,10 +171,10 @@ module keccak_output_unit_tb ();
         print_state_fips(state_i);
 
         // ----------------------------------------------------------
-        // TC1: SHA3-256 (32 Bytes total) - One Beat
-        // Expected: Full 32 bytes output, LAST asserted immediately.
+        // TC1: SHA3-256 (32 Bytes total) - Beat 1 of 4
+        // Expected: Full 8 bytes output, LAST is LOW.
         // ----------------------------------------------------------
-        $display("TC1: SHA3-256 Full Output (32 Bytes)");
+        $display("TC1: SHA3-256 Output Beat 1/4 (8 Bytes)");
         keccak_mode_i    = SHA3_256;
         rate_i           = RATE_SHA3_256;
         bytes_squeezed_i = 0;
@@ -183,61 +183,52 @@ module keccak_output_unit_tb ();
         total_bytes_squeezed_i = 0;
         #1;
 
-        // Expected Data: Bytes 0x00 to 0x1F (packed into 256 bits)
-        // Since we filled linearly, we expect the first 256 bits of the state.
-        // Note: state_i[0][0] contains bytes 0-7.
         exp_data_build = '0;
-        for(i=0; i<32; i++) exp_data_build[i*8 +: 8] = i[7:0];
+        for(i=0; i<8; i++) exp_data_build[i*8 +: 8] = i[7:0];
 
-        check_results("TC1", exp_data_build, 32'hFFFFFFFF, 1'b1, 1'b0);
-
+        check_results("TC1", exp_data_build, 8'hFF, 1'b0, 1'b0);
 
         // ----------------------------------------------------------
-        // TC2: SHA3-512 (64 Bytes total) - Beat 1 of 2
-        // Expected: Full 32 bytes, LAST is LOW (needs 32 more).
+        // TC2: SHA3-512 (64 Bytes total) - Beat 1 of 8
+        // Expected: Full 8 bytes, LAST is LOW (needs 56 more).
         // ----------------------------------------------------------
-        $display("\nTC2: SHA3-512 Beat 1/2");
+        $display("\nTC2: SHA3-512 Beat 1/8");
         keccak_mode_i    = SHA3_512;
         rate_i           = RATE_SHA3_512; // 576 bits = 72 bytes
         bytes_squeezed_i = 0;
         #1;
 
-        // Same data expectation as TC1 (Bytes 0-31)
-        check_results("TC2", exp_data_build, 32'hFFFFFFFF, 1'b0, 1'b0);
-
+        // Same data expectation as TC1 (Bytes 0-7)
+        check_results("TC2", exp_data_build, 8'hFF, 1'b0, 1'b0);
 
         // ----------------------------------------------------------
-        // TC3: SHA3-512 - Beat 2 of 2
-        // Expected: Full 32 bytes, LAST is HIGH.
+        // TC3: SHA3-512 - Beat 8 of 8
+        // Expected: Full 8 bytes, LAST is HIGH.
         // ----------------------------------------------------------
-        $display("\nTC3: SHA3-512 Beat 2/2");
-        bytes_squeezed_i = 32; // Offset by 32 bytes
+        $display("\nTC3: SHA3-512 Beat 8/8");
+        bytes_squeezed_i = 56; // Offset by 56 bytes
         #1;
 
-        // Expected Data: Bytes 32 to 63 (0x20 to 0x3F)
-        for(i=0; i<32; i++) exp_data_build[i*8 +: 8] = (i+32);
+        // Expected Data: Bytes 56 to 63 (0x38 to 0x3F)
+        for(i=0; i<8; i++) exp_data_build[i*8 +: 8] = (i+56);
 
-        check_results("TC3", exp_data_build, 32'hFFFFFFFF, 1'b1, 1'b0);
-
+        check_results("TC3", exp_data_build, 8'hFF, 1'b1, 1'b0);
 
         // ----------------------------------------------------------
-        // TC4: Partial Keep Logic (SHA3-512 Boundary)
-        // Rate = 72 bytes. We squeezed 64 bytes (TC2+TC3).
-        // Remaining = 8 bytes.
-        // Expected: Keep mask 0x000000FF, Permutation Trigger HIGH.
+        // TC4: Perfection + Permutation Trigger (SHA3-512 Boundary)
+        // Rate = 72 bytes. Wait, if rate is 72, at offset 64, there are 8 left.
+        // Expected: Keep mask 0xFF, Permutation Trigger HIGH.
         // ----------------------------------------------------------
         $display("\nTC4: Partial Keep + Permutation Trigger");
         keccak_mode_i    = SHA3_512;
         bytes_squeezed_i = 64;
         #1;
 
-        // Expected Data: Bytes 64 to 95 (0x40 to 0x5F)
-        // The module will output 32 bytes from the state, but only bottom 8 are valid.
-        for(i=0; i<32; i++) exp_data_build[i*8 +: 8] = (i+64);
+        // Expected Data: Bytes 64 to 71 (0x40 to 0x47)
+        for(i=0; i<8; i++) exp_data_build[i*8 +: 8] = (i+64);
 
-        // Keep Mask: Bottom 8 bits set (8 bytes valid) -> 8'hFF
-        check_results("TC4", exp_data_build, 32'h000000FF, 1'b1, 1'b1);
-
+        // Keep Mask: All 8 bits set -> 8'hFF
+        check_results("TC4", exp_data_build, 8'hFF, 1'b1, 1'b1);
 
         // ----------------------------------------------------------
         // TC5: SHAKE128 Infinite Stream
@@ -252,20 +243,15 @@ module keccak_output_unit_tb ();
         // Verify LAST is 0
         if (last_o !== 1'b0) begin
             $error("TC5 FAIL: SHAKE should not assert last_o");
-            $display("  Expected: 0");
-            $display("  Got:      %b", last_o);
         end else begin
             $display("TC5 PASS.");
-            $display("  Expected: 0");
-            $display("  Got:      %b", last_o);
         end
 
         // ----------------------------------------------------------
         // TC6: SHAKE128 Bounded Stream (End of Hash)
-        // Rate = 168. We squeeze at byte offset 32.
         // Requested XOF len is 34. Total bytes squeezed is 32.
         // This beat will squeeze the final 2 bytes.
-        // Expected: Keep mask 0x00000003 (2 bytes), Last is HIGH.
+        // Expected: Keep mask 0x03 (2 bytes), Last is HIGH.
         // ----------------------------------------------------------
         $display("\nTC6: SHAKE128 Bounded Length Reached");
         keccak_mode_i          = SHAKE128;
@@ -276,14 +262,14 @@ module keccak_output_unit_tb ();
         total_bytes_squeezed_i = 32; // we have output 32 so far
         #1;
 
-        for(i=0; i<32; i++) exp_data_build[i*8 +: 8] = (i+32);
-        check_results("TC6", exp_data_build, 32'h00000003, 1'b1, 1'b0);
+        for(i=0; i<8; i++) exp_data_build[i*8 +: 8] = (i+32);
+        check_results("TC6", exp_data_build, 8'h03, 1'b1, 1'b0);
 
         // ----------------------------------------------------------
         // TC7: SHAKE128 Bounded Stream (Not the End)
         // Requested XOF len is 68. Total bytes squeezed is 32.
-        // This beat will output a full 32 bytes (total 64).
-        // Expected: Keep mask 0xFFFFFFFF, Last is LOW.
+        // This beat will output a full 8 bytes (total 40).
+        // Expected: Keep mask 0xFF, Last is LOW.
         // ----------------------------------------------------------
         $display("\nTC7: SHAKE128 Bounded Length Not Reached");
         keccak_mode_i          = SHAKE128;
@@ -294,10 +280,11 @@ module keccak_output_unit_tb ();
         total_bytes_squeezed_i = 32;
         #1;
 
-        for(i=0; i<32; i++) exp_data_build[i*8 +: 8] = (i+32);
-        check_results("TC7", exp_data_build, 32'hFFFFFFFF, 1'b0, 1'b0);
+        for(i=0; i<8; i++) exp_data_build[i*8 +: 8] = (i+32);
+        check_results("TC7", exp_data_build, 8'hFF, 1'b0, 1'b0);
 
         $display("\n--- Testbench Complete ---");
+        $finish;
     end
 
 endmodule

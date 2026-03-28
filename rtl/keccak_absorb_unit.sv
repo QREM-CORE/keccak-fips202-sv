@@ -35,7 +35,7 @@ module keccak_absorb_unit (
     output  logic [DWIDTH-1:0]              carry_over_o,
     output  logic [KEEP_WIDTH-1:0]          carry_keep_o
 );
-    localparam int INPUT_LANE_NUM = 4;
+    localparam int INPUT_LANE_NUM = DWIDTH/LANE_SIZE;
     localparam int BYTES_PER_LANE = LANE_SIZE/BYTE_SIZE;
     localparam int TOTAL_BYTES = DWIDTH/BYTE_SIZE;
     localparam int CARRY_KEEP_LOWER_INDEX = 8;

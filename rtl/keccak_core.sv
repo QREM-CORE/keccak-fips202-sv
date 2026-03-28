@@ -285,8 +285,8 @@ module keccak_core (
     assign KAU_STATE_ARRAY_I    = state_array;
     assign KAU_RATE_I           = rate;
     assign KAU_BYTES_ABSORBED_I = bytes_absorbed;
-    assign KAU_MSG_I            = has_carry_over ? { 64'b0, carry_over} : t_data_i;
-    assign KAU_KEEP_I           = has_carry_over ? {  8'b0, carry_keep} : t_keep_i;
+    assign KAU_MSG_I            = has_carry_over ? carry_over : t_data_i;
+    assign KAU_KEEP_I           = has_carry_over ? carry_keep : t_keep_i;
     assign KAU_PAD_EN_I         = (state == STATE_SUFFIX_PADDING);
     assign KAU_SUFFIX_I         = suffix;
 

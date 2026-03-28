@@ -1,5 +1,5 @@
 // ==========================================================
-// Testbench for Keccak Absorb Module
+// Testbench for Keccak Absorb Module (64-bit DWIDTH)
 // ==========================================================
 `timescale 1ns/1ps
 
@@ -88,7 +88,7 @@ module keccak_absorb_unit_tb ();
             error_count++;
         end
 
-        // 3. Check Carry Data (Only if flag is high, or if we expect non-zero data)
+        // 3. Check Carry Data
         if (exp_has_carry && (carry_over_o !== exp_carry_data)) begin
              $error("[%s] FAIL: Carry Data mismatch.\n\tExpected: %h\n\tGot:      %h",
                    test_name, exp_carry_data, carry_over_o);
@@ -96,7 +96,6 @@ module keccak_absorb_unit_tb ();
         end
 
         // 4. Check Carry Keep
-        // We check this if carry flag is high, or generally if we expect a non-zero value.
         if (carry_keep_o !== exp_carry_keep) begin
              $error("[%s] FAIL: Carry Keep mismatch.\n\tExpected: %h\n\tGot:      %h",
                    test_name, exp_carry_keep, carry_keep_o);
@@ -144,86 +143,76 @@ module keccak_absorb_unit_tb ();
         $display("TC1: SHA3-256 Start (0 bytes absorbed)");
         rate_i = RATE_SHA3_256;
         bytes_absorbed_i = 0;
-        msg_i = {4{64'h1111_2222_3333_4444}}; // Fill 4 lanes with pattern
-        keep_i = {32{1'b1}};                  // All 32 bytes valid
+        msg_i = 64'h1111_2222_3333_4444; // Fill 1 lane with pattern
+        keep_i = 8'b1111_1111;           // All 8 bytes valid
 
         #10;
 
         expected_state = '0;
         expected_state[0][0] = 64'h1111_2222_3333_4444;
-        expected_state[1][0] = 64'h1111_2222_3333_4444;
-        expected_state[2][0] = 64'h1111_2222_3333_4444;
-        expected_state[3][0] = 64'h1111_2222_3333_4444;
 
-        check_results("TC1", 32, 0, expected_state);
-        // Visual check: Lanes (0,0), (1,0), (2,0), (3,0) should be filled.
+        check_results("TC1", 8, 0, expected_state);
         print_state_fips(state_out);
 
 
         // ----------------------------------------------------------
         // TEST CASE 2: SHA3-256 Partial Masking
-        // Absorbing 32 bytes, but keep_i only enables first 8 bytes (1 lane).
+        // Absorbing 8 bytes max, but keep_i only enables 4 bytes.
         // ----------------------------------------------------------
-        $display("\nTC2: SHA3-256 Partial Mask (Only 8 bytes valid)");
-        bytes_absorbed_i = 32; // Starting after previous block
-        msg_i = {4{64'hDEAD_BEEF_DEAD_BEEF}};
-        keep_i = { {24{1'b0}}, {8{1'b1}} }; // Top 24 bytes invalid, Bottom 8 valid
+        $display("\nTC2: SHA3-256 Partial Mask (Only 4 bytes valid)");
+        bytes_absorbed_i = 8; // Starting after previous block (Lane 1 starts here)
+        msg_i = 64'hDEAD_BEEF_DEAD_BEEF;
+        keep_i = 8'b0000_1111; // Bottom 4 bytes valid
 
         #10;
 
         expected_state = '0;
-        expected_state[4][0] = 64'hDEAD_BEEF_DEAD_BEEF;
+        expected_state[1][0] = 64'h0000_0000_DEAD_BEEF;
 
-        // Expected: 32 + 8 = 40 bytes absorbed.
-        // Logic: Should fill Lane 4 (which is x=4, y=0) and ignore lanes 5,6,7.
-        check_results("TC2", 40, 0, expected_state);
+        // Expected: 8 + 4 = 12 bytes absorbed.
+        check_results("TC2", 12, 0, expected_state);
         print_state_fips(state_out);
 
 
         // ----------------------------------------------------------
-        // TEST CASE 3: SHA3-256 "The Straddle" (Carry Over)
-        // Rate = 136 bytes. We are at 128 bytes. We input 32 bytes.
-        // Only 8 bytes fit. 24 bytes must carry over.
+        // TEST CASE 3: SHA3-256 Boundary Reached (No Carry Over possible for DWIDTH=64)
+        // Rate = 136 bytes. We are at 128 bytes. We input 8 bytes.
+        // It fits exactly. State reaches 136 bytes.
         // ----------------------------------------------------------
-        $display("\nTC3: SHA3-256 Straddle Boundary (Trigger Carry Over)");
-        rate_i = RATE_SHA3_256; // 1088
-        bytes_absorbed_i = 128; // 16 Lanes full (0-15). Next is Lane 16 (Last one).
+        $display("\nTC3: SHA3-256 Boundary Reached (No Carry)");
+        rate_i = RATE_SHA3_256; // 136 bytes
+        bytes_absorbed_i = 128; // Lane 16 (the 17th lane) is empty.
 
-        // Bottom 64 bits = AAAA..., Top 192 bits = BBBB...
-        msg_i = { {3{64'hBBBB_BBBB_BBBB_BBBB}}, 64'hAAAA_AAAA_AAAA_AAAA };
-        keep_i = {32{1'b1}};
+        msg_i = 64'hAAAA_AAAA_BBBB_BBBB;
+        keep_i = 8'b1111_1111; // 8 bytes valid
 
         #10;
 
         expected_state = '0;
-        expected_state[1][3] = 64'hAAAA_AAAA_AAAA_AAAA; // Lane 16
+        expected_state[1][3] = 64'hAAAA_AAAA_BBBB_BBBB; // Lane 16 (16 % 5 = 1, 16 / 5 = 3)
 
-        check_results("TC3", 136, 1, expected_state,
-                      {64'b0, 192'hBBBB_BBBB_BBBB_BBBB_BBBB_BBBB_BBBB_BBBB_BBBB_BBBB_BBBB_BBBB},
-                      24'hFFFFFF);
+        check_results("TC3", 136, 0, expected_state, '0, '0);
 
         print_state_fips(state_out);
 
 
         // ----------------------------------------------------------
         // TEST CASE 4: SHA3-512 Mode (Smaller Rate)
-        // Rate = 72 bytes (9 Lanes).
-        // Let's ensure logic respects the smaller rate limit.
+        // Rate = 72 bytes (9 Lanes). Use boundary condition.
         // ----------------------------------------------------------
         $display("\nTC4: SHA3-512 Boundary Check");
-        rate_i = RATE_SHA3_512; // 576
-        bytes_absorbed_i = 64; // 8 Lanes full. Lane 8 is the last one.
-        msg_i = {4{64'hCCCC_CCCC_CCCC_CCCC}};
-        keep_i = {32{1'b1}};
+        rate_i = RATE_SHA3_512; // 72 bytes
+        bytes_absorbed_i = 64; // Lane 8 (the 9th lane) is empty.
+        msg_i = 64'hCCCC_CCCC_CCCC_CCCC;
+        keep_i = 8'b1111_1111; // Provide full 8 bytes.
 
         #10;
 
         expected_state = '0;
         expected_state[3][1] = 64'hCCCC_CCCC_CCCC_CCCC;
 
-        check_results("TC4", 72, 1, expected_state,
-                      {64'b0, 192'hCCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC},
-                      24'hFFFFFF);
+        // Fits exactly 8 bytes (since space is 72 - 64 = 8).
+        check_results("TC4", 72, 0, expected_state, '0, '0);
 
         print_state_fips(state_out);
 
@@ -237,8 +226,8 @@ module keccak_absorb_unit_tb ();
         state_in = '0;
 
         // Input: 0xAA, 0xBB, 0xCC, 0xDD, 0xEE (where EE is the LSB/Byte 0)
-        msg_i = {216'h0, 40'hAA_BB_CC_DD_EE};
-        keep_i = 32'b00000000_00000000_00000000_00011111; // Bottom 5 bytes valid
+        msg_i = 64'h0000_00AA_BBCC_DDEE;
+        keep_i = 8'b0001_1111; // Bottom 5 bytes valid
 
         #10;
 
@@ -252,25 +241,21 @@ module keccak_absorb_unit_tb ();
         // ----------------------------------------------------------
         // TEST CASE 6: SHAKE128 Max Rate Boundary
         // ----------------------------------------------------------
-        $display("\nTC6: SHAKE128 Max Rate (Lane 20 valid, Lane 21 cap)");
-        rate_i = RATE_SHAKE512; // 1344
+        $display("\nTC6: SHAKE128 Max Rate Edge Case");
+        rate_i = RATE_SHAKE512; // 168 bytes
         bytes_absorbed_i = 160;
 
-        // Lane 3 (Top): BAD0...
-        // Lane 2:       BAD0...
-        // Lane 1:       CAFE...
-        // Lane 0 (Bot): 9999... (This one gets absorbed)
-        msg_i = { {2{64'hBAD0_BAD0_BAD0_BAD0}}, 64'hCAFE_F00D_CAFE_F00D, 64'h9999_8888_7777_6666 };
-        keep_i = {32{1'b1}};
+        // Lane 20 (21st Lane) gets absorbed.
+        msg_i = 64'h9999_8888_7777_6666;
+        keep_i = 8'b1111_1111;
 
         #10;
 
         expected_state = '0;
-        expected_state[0][4] = 64'h9999_8888_7777_6666;
+        expected_state[0][4] = 64'h9999_8888_7777_6666; // Lane 20 is x=0, y=4.
 
-        check_results("TC6", 168, 1, expected_state,
-                      {64'b0, 64'hBAD0_BAD0_BAD0_BAD0, 64'hBAD0_BAD0_BAD0_BAD0,
-                      64'hCAFE_F00D_CAFE_F00D}, 24'hFFFFFF);
+        // It fits exactly 168-160 = 8 bytes. No carry.
+        check_results("TC6", 168, 0, expected_state, '0, '0);
 
         print_state_fips(state_out);
 
@@ -279,20 +264,17 @@ module keccak_absorb_unit_tb ();
         // TEST CASE 7: SHAKE256 (Sanity Check)
         // ----------------------------------------------------------
         $display("\nTC7: SHAKE256 (Sanity Check)");
-        rate_i = RATE_SHAKE256; // 1088
+        rate_i = RATE_SHAKE256; // 136 bytes
         bytes_absorbed_i = 0;
-        msg_i = {4{64'h1234_5678_9ABC_DEF0}};
-        keep_i = {32{1'b1}};
+        msg_i = 64'h1234_5678_9ABC_DEF0;
+        keep_i = 8'b1111_1111;
 
         #10;
 
         expected_state = '0;
         expected_state[0][0] = 64'h1234_5678_9ABC_DEF0;
-        expected_state[1][0] = 64'h1234_5678_9ABC_DEF0;
-        expected_state[2][0] = 64'h1234_5678_9ABC_DEF0;
-        expected_state[3][0] = 64'h1234_5678_9ABC_DEF0;
 
-        check_results("TC7", 32, 0, expected_state);
+        check_results("TC7", 8, 0, expected_state);
         print_state_fips(state_out);
 
         // ==========================================================
@@ -307,53 +289,29 @@ module keccak_absorb_unit_tb ();
         rate_i = RATE_SHA3_256;
         bytes_absorbed_i = 24;
         state_in = '0;
-        msg_i = {4{64'hEEEE_EEEE_EEEE_EEEE}};
-        keep_i = {32{1'b1}};
+        msg_i = 64'hEEEE_EEEE_EEEE_EEEE;
+        keep_i = 8'b1111_1111;
 
         #10;
 
         expected_state = '0;
         // Start index = 24 / 8 = Lane 3 (Lane(3,0))
         expected_state[3][0] = 64'hEEEE_EEEE_EEEE_EEEE; // 24-31
-        expected_state[4][0] = 64'hEEEE_EEEE_EEEE_EEEE; // 32-39
-        expected_state[0][1] = 64'hEEEE_EEEE_EEEE_EEEE; // 40-47
-        expected_state[1][1] = 64'hEEEE_EEEE_EEEE_EEEE; // 48-55
 
-        // Expected: 24 + 32 = 56 bytes. No carry.
-        check_results("TC8", 56, 0, expected_state, '0, '0);
+        // Expected: 24 + 8 = 32 bytes. No carry.
+        check_results("TC8", 32, 0, expected_state, '0, '0);
         print_state_fips(state_out);
 
 
         // ----------------------------------------------------------
-        // TEST CASE 9: The "8-Bytes Left" Edge Case
-        // Rate 136. We are at 128 bytes (Lane 16 is empty).
-        // Input: 32 bytes valid.
-        // Expected: 8 Bytes absorbed (fills block). 24 Bytes carried.
+        // TEST CASE 9: Removed since misaligned Straddle is impossible
+        // with DWIDTH=64 and AXI bus guarantees dense tkeep.
         // ----------------------------------------------------------
-        $display("\nTC9: The '8-Byte Left' Boundary (Max Aligned Carry)");
-        rate_i = RATE_SHA3_256;
-        bytes_absorbed_i = 128;
-        state_in = '0;
-
-        // Input 32 bytes. 8 fit. 24 carry.
-        // Lower 64-bits (0xDD..) should absorb. Upper 192 bits (0xCC..) should carry.
-        msg_i = { {3{64'hCCCC_CCCC_CCCC_CCCC}}, 64'hDDDD_DDDD_DDDD_DDDD };
-        keep_i = {32{1'b1}};
-
-        #10;
-
-        expected_state = '0;
-        expected_state[1][3] = 64'hDDDD_DDDD_DDDD_DDDD; // Lane 16 filled
-
-        // Carry: The top 3 words (0xCCCC...) shifted down to position 0.
-        check_results("TC9", 136, 1, expected_state,
-                      {64'b0, 192'hCCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC_CCCC},
-                      24'hFFFFFF);
 
 
         // ----------------------------------------------------------
         // TEST CASE 10: Garbage Data Masking
-        // Input has valid data in Byte 0, but GARBAGE in Bytes 1-31.
+        // Input has valid data in Byte 0, but GARBAGE in Bytes 1-7.
         // Expected: Only Byte 0 is XORed. Garbage is ignored.
         // ----------------------------------------------------------
         $display("\nTC10: Garbage Data Masking");
@@ -362,8 +320,8 @@ module keccak_absorb_unit_tb ();
         state_in = '0;
 
         // Msg has valid 0xAA, but then 0xFF garbage
-        msg_i = { {31{8'hFF}}, 8'hAA };
-        keep_i = 32'b00000000_00000000_00000000_00000001; // Only 1st byte valid
+        msg_i = { {7{8'hFF}}, 8'hAA };
+        keep_i = 8'b0000_0001; // Only 1st byte valid
 
         #10;
 
@@ -374,6 +332,7 @@ module keccak_absorb_unit_tb ();
         print_state_fips(state_out);
 
         $display("\n--- Testbench Complete ---");
+        $finish;
     end
 
 endmodule
