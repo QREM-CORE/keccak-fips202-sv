@@ -3,7 +3,7 @@
  * Author: Kiet Le
  * Description:
  * - Implements the "Squeeze" phase of the sponge construction.
- * - Extracts data from the State Array in chunks of 'DWIDTH' (e.g., 256 bits).
+ * - Extracts data from the State Array in chunks of 'DWIDTH' (e.g., 64 bits).
  * - Linearizes the 3D State Array (Lane[x][y]) into a bitstream for output.
  * - Manages Flow Control:
  * 1. Fixed-Length (SHA3-256/512): Asserts 'last_o' when the digest size is reached.
@@ -29,14 +29,14 @@ module keccak_output_unit (
 
     output logic [BYTE_ABSORB_WIDTH-1:0]    bytes_squeezed_o,      // Next counter value
     output logic                            squeeze_perm_needed_o, // Flag: Rate is empty!
-    output logic [DWIDTH-1:0]               data_o,                // 256 Bits
+    output logic [DWIDTH-1:0]               data_o,                // 64 Bits
     output logic [DWIDTH/8-1:0]             keep_o,                // Valid bytes
     output logic                            last_o                 // End of Hash
 );
     // ==========================================================
     // 1. CALCULATE NEXT COUNTER VALUE
     // ==========================================================
-    // Simply increment by the bus width (32 bytes).
+    // Simply increment by the bus width (8 bytes).
     // The FSM is responsible for resetting this to 0 when permutation happens.
     assign bytes_squeezed_o = bytes_squeezed_i + (DWIDTH / 8);
 
@@ -101,7 +101,7 @@ module keccak_output_unit (
     end
 
     always_comb begin
-        // If we are outputting a full 32 bytes, fill the mask
+        // If we are outputting a full 8 bytes, fill the mask
         if (output_bytes_this_cycle == (DWIDTH/8)) begin
             keep_o = '1; // All ones
         end else begin

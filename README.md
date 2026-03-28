@@ -128,8 +128,8 @@ This allows seamless hashing of arbitrarily-sized messages using wide AXI data p
 ## ⏱️ Performance Characteristics
 
 * **Permutation latency:** 120 cycles per Keccak-f[1600]
-* **Absorb throughput:** 256 bits per accepted AXI beat
-* **Squeeze throughput:** 256 bits per cycle (subject to backpressure)
+* **Absorb throughput:** 64 bits per accepted AXI beat
+* **Squeeze throughput:** 64 bits per cycle (subject to backpressure)
 * **Critical path:** Single Keccak step (Θ, ρ, π, χ, or ι)
 
 The multi-cycle round decomposition significantly reduces combinational depth,
@@ -167,7 +167,7 @@ The `s_axis` and `m_axis` ports utilize the `axis_if` SystemVerilog interface (l
 
 * **Latency & Backpressure:** The core deasserts `s_axis.tready` for 120 cycles during the permutation phase. Upstream buffers (FIFOs) must be sized to handle this pause if streaming continuously.
 * **SHAKE Bounded vs Infinite Streams:** In XOF modes (SHAKE128/256), the `m_axis` output can operate in two ways. Driving `xof_len_i` with a strictly positive byte limit configures the core to auto-terminate (`tlast` is asserted automatically). Leaving `xof_len_i = 0` triggers infinite-length continuous generation, requiring manual assertion of `stop_i` to break the stream.
-* **Partial Bytes:** `s_axis.tkeep` is fully respected, allowing messages that are not 256-bit aligned.
+* **Partial Bytes:** `s_axis.tkeep` is fully respected, allowing messages that are not 64-bit aligned.
 
 ## 💻 Simulation & Verification
 

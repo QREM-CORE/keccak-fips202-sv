@@ -150,7 +150,7 @@ module keccak_core (
     // Squeeze Signals
     logic   [BYTE_ABSORB_WIDTH-1:0] bytes_squeezed;
     logic   [XOF_LEN_WIDTH-1:0]     total_bytes_squeezed;
-    logic   [5:0]                   bytes_in_this_beat; // Max 32 bytes (5 bits + 1)
+    logic   [5:0]                   bytes_in_this_beat; // Max 8 bytes (previously 32)
 
     // 1C. Enable Wires
     // ----------------------------------------------------------

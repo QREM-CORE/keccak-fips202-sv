@@ -3,7 +3,7 @@
  * Author: Kiet Le
  * Description:
  * - Performs the XOR absorption phase of the Keccak sponge construction.
- * - Accepts a variable-width message chunk (up to 256 bits) and absorbs it
+ * - Accepts a variable-width message chunk (up to 64 bits) and absorbs it
  * into the current State Array at the offset specified by 'bytes_absorbed_i'.
  * - Handles three data scenarios:
  * 1. Standard Absorb: Input fits entirely within the remaining Rate block.
