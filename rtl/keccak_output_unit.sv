@@ -79,31 +79,34 @@ module keccak_output_unit (
     // Note: rate_i is bits, convert to bytes.
     assign bytes_remaining_in_rate = (rate_i >> 3) - bytes_squeezed_i;
 
-    logic [XOF_LEN_WIDTH-1:0] bytes_remaining_req;
-    assign bytes_remaining_req = (is_xof_fixed_len_i && xof_len_i > total_bytes_squeezed_i) ? (xof_len_i - total_bytes_squeezed_i) : 0;
+    logic [5:0] output_bytes_this_cycle;
 
-    logic [XOF_LEN_WIDTH-1:0] limit_bytes;
     always_comb begin
+        // Default: Assume we can output a full 32-byte bus this beat.
+        output_bytes_this_cycle = (DWIDTH/8);
+
+        // Constraint 1: Rate Limit
+        if (bytes_remaining_in_rate < output_bytes_this_cycle) begin
+            output_bytes_this_cycle = bytes_remaining_in_rate[5:0];
+        end
+
+        // Constraint 2: Bounded XOF Target Emptying
         if (is_xof_fixed_len_i && (keccak_mode_i == SHAKE128 || keccak_mode_i == SHAKE256)) begin
-            // We have an XOF mode with a specific length
-            if (bytes_remaining_in_rate < bytes_remaining_req) begin
-                limit_bytes = bytes_remaining_in_rate;
-            end else begin
-                limit_bytes = bytes_remaining_req;
+            logic [XOF_LEN_WIDTH-1:0] diff;
+            diff = xof_len_i - total_bytes_squeezed_i;
+            if (diff < output_bytes_this_cycle) begin
+                output_bytes_this_cycle = diff[5:0];
             end
-        end else begin
-            limit_bytes = bytes_remaining_in_rate;
         end
     end
 
     always_comb begin
-        // If we have more than 32 bytes left in the limit, keep all 32.
-        if (limit_bytes >= (DWIDTH/8)) begin
+        // If we are outputting a full 32 bytes, fill the mask
+        if (output_bytes_this_cycle == (DWIDTH/8)) begin
             keep_o = '1; // All ones
         end else begin
-            // We hit the end of the rate block or XOF limit. Mask the valid bytes.
-            // Example: 5 bytes left -> keep_o = 00...0011111
-            keep_o = (1 << limit_bytes) - 1;
+            // Synthesizes cleanly into a 6-to-32 bit decoder
+            keep_o = (1 << output_bytes_this_cycle) - 1;
         end
     end
 
@@ -127,8 +130,6 @@ module keccak_output_unit (
             // XOF (SHAKE): Infinite. Rely on external stop signal or fixed len limit
             default: begin
                 if (is_xof_fixed_len_i) begin
-                    logic [XOF_LEN_WIDTH-1:0] output_bytes_this_cycle;
-                    output_bytes_this_cycle = (limit_bytes > (DWIDTH/8)) ? (DWIDTH/8) : limit_bytes;
                     if (total_bytes_squeezed_i + output_bytes_this_cycle >= xof_len_i) begin
                         last_o = 1'b1;
                     end else begin
