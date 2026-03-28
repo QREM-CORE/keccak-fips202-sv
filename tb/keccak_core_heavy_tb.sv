@@ -372,10 +372,10 @@ module keccak_core_heavy_tb;
                 if (!is_shake || (is_shake && xof_len_val > 0)) begin
                     // SHA3/Bounded XOF logic (Last asserts at extremely final beat)
                     int bytes_rem = bytes_total_expected - bytes_collected_so_far;
-                    
+
                     int expected_bytes_this_beat2;
                     expected_bytes_this_beat2 = (DWIDTH/8);
-                    if (bytes_remaining_in_rate_block < expected_bytes_this_beat2) 
+                    if (bytes_remaining_in_rate_block < expected_bytes_this_beat2)
                         expected_bytes_this_beat2 = bytes_remaining_in_rate_block;
 
                     if (bytes_rem <= expected_bytes_this_beat2) exp_last = 1; else exp_last = 0;
