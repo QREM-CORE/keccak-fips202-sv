@@ -7,10 +7,6 @@ package keccak_pkg;
     parameter int ROW_SIZE  = 5;
     parameter int COL_SIZE  = 5;
 
-    // Step Map
-    parameter int STEP_NUM = 5;
-    parameter int STEP_SEL_WIDTH = $clog2(STEP_NUM);
-
     // Iota Step
     parameter int ROUND_INDEX_SIZE = 5;
     parameter int MAX_ROUNDS = 24;
@@ -42,15 +38,5 @@ package keccak_pkg;
     parameter int BYTE_ABSORB_WIDTH = 8;
     parameter int XOF_LEN_WIDTH = 16;
 
-    // Different step selector options
-    typedef enum {
-        IDLE_STEP,
-        ZERO_STEP,
-        THETA_STEP,
-        RHO_STEP,
-        PI_STEP,
-        CHI_STEP,
-        IOTA_STEP
-    } keccak_step_t;
 
 endpackage : keccak_pkg

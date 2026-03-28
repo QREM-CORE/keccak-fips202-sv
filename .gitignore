@@ -6,3 +6,4 @@ transcript
 *.txt
 obj_dir/
 build.f
+.vscode/
