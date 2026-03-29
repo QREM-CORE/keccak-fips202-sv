@@ -75,7 +75,7 @@ The core follows a strict **Start → Absorb → Permute → Squeeze** lifecycle
 ## 🛠️ Architecture Overview
 
 ### Structural Data Path
-![Keccak Core Structural Diagram](docs/KECCAK_STRUCTURAL_DIAGRAM.jpg)
+![Keccak Core Structural Diagram](docs/KECCAK_STRUCTURAL_DIAGRAM_v2.png)
 
 The architecture centers around a **1600-bit (200-byte) State Array** that circulates through processing units in a feedback loop:
 
@@ -84,7 +84,7 @@ The architecture centers around a **1600-bit (200-byte) State Array** that circu
 * **Keccak Output Unit (KOU):** Truncates the state array to the desired rate (r) and linearizes the data onto the AXI4-Stream output bus using word-aligned indexing during the Squeeze phase.
 
 ### Finite State Machine (Control)
-![Keccak Core FSM Diagram](docs/KECCAK_CORE_FSM.jpg)
+![Keccak Core FSM Diagram](docs/KECCAK_CORE_FSM_v2.png)
 
 The design is orchestrated by a centralized FSM with the following states:
 
