@@ -96,7 +96,7 @@ module keccak_absorb_unit (
 
     assign head_lane_idx    = bytes_absorbed_i >> $clog2(BYTES_PER_LANE);
     assign head_byte_offset = bytes_absorbed_i[$clog2(BYTES_PER_LANE)-1:0];
-    assign head_pad_val     = (LANE_SIZE'(suffix_i)) << (head_byte_offset * BYTE_SIZE);
+    assign head_pad_val     = (64'(suffix_i)) << {head_byte_offset, 3'b000};
 
     assign tail_lane_idx    = (rate_i >> $clog2(LANE_SIZE)) - 1;
     assign tail_pad_val     = {1'b1, {(LANE_SIZE-1){1'b0}}};
@@ -117,10 +117,10 @@ module keccak_absorb_unit (
             xor_plane[tail_lane_idx] |= tail_pad_val;
         end else begin
             // Normal Absorb Phase
-            start_lane_idx = int'(bytes_absorbed_i >> 3);
+            start_lane_idx = bytes_absorbed_i >> $clog2(BYTES_PER_LANE);
 
             for (int i = 0; i < INPUT_LANE_NUM; i = i + 1) begin
-                automatic int current_lane_idx = start_lane_idx + i;
+                automatic logic [$clog2(ROW_SIZE*COL_SIZE)-1:0] current_lane_idx = start_lane_idx + i;
                 if (current_lane_idx < rate_lane_limit && current_lane_idx < MAX_POSSIBLE_LANES) begin
                     xor_plane[current_lane_idx] = split_lanes[i];
                 end
