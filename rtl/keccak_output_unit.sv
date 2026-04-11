@@ -65,8 +65,8 @@ module keccak_output_unit (
     // 3. EXTRACT OUTPUT WORD (High-Fmax Multiplexer)
     // ==========================================================
     // Instead of a dynamic bit-slice, select exactly which word block to output.
-    int current_word_idx;
-    assign current_word_idx = bytes_squeezed_i / (DWIDTH / 8);
+    logic [$clog2(NUM_OUTPUT_WORDS)-1:0] current_word_idx;
+    assign current_word_idx = bytes_squeezed_i >> $clog2(DWIDTH / 8);
 
     always_comb begin
         data_o = state_words[current_word_idx];
