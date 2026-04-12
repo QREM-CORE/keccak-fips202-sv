@@ -19,7 +19,7 @@ import keccak_pkg::*;
 module iota_step (
     input  wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] state_array_i,
     input  wire [ROUND_INDEX_SIZE-1:0] round_index_i, // Current round index (0-23)
-    output  wire  [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] state_array_o
+    output reg  [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] state_array_o
 );
     /* ============================================================
      * Step 1: Get Round Constant using input Round Index
@@ -54,20 +54,10 @@ module iota_step (
             5'd23: rc = 64'h8000000080008008;
             default: rc = 64'h0000000000000000;
         endcase
-    end
 
-    genvar x, y;
-    generate
-        for (y = 0; y < COL_SIZE; y++) begin : gen_iota_y
-            for (x = 0; x < ROW_SIZE; x++) begin : gen_iota_x
-                if (x == 0 && y == 0) begin
-                    assign state_array_o[x][y] = state_array_i[x][y] ^ rc;
-                end else begin
-                    assign state_array_o[x][y] = state_array_i[x][y];
-                end
-            end
-        end
-    endgenerate
+        state_array_o = state_array_i;
+        state_array_o[0][0] = state_array_i[0][0] ^ rc;
+    end
 
 endmodule
 
