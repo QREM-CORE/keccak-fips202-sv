@@ -82,24 +82,24 @@ module keccak_absorb_unit (
     // ==========================================================
     // 5. XOR INTO STATE (SHARED ABSORB & PADDING RESOURCE)
     // ==========================================================
-    logic [4:0] rate_lane_limit;
-    assign rate_lane_limit = rate_i[RATE_WIDTH-1:6]; // rate_i / 64
+    logic [$clog2(MAX_POSSIBLE_LANES)-1:0] rate_lane_limit;
+    assign rate_lane_limit = rate_i[RATE_WIDTH-1:$clog2(LANE_SIZE)]; // rate_i / 64
 
-    int start_lane_idx;
+    logic [$clog2(ROW_SIZE*COL_SIZE)-1:0] start_lane_idx;
 
     // Padder Coordinates
-    int head_lane_idx;
-    int head_byte_offset;
-    logic [63:0] head_pad_val;
-    int tail_lane_idx;
-    logic [63:0] tail_pad_val;
+    logic [$clog2(ROW_SIZE*COL_SIZE)-1:0] head_lane_idx;
+    logic [$clog2(BYTES_PER_LANE)-1:0] head_byte_offset;
+    logic [LANE_SIZE-1:0] head_pad_val;
+    logic [$clog2(ROW_SIZE*COL_SIZE)-1:0] tail_lane_idx;
+    logic [LANE_SIZE-1:0] tail_pad_val;
 
-    assign head_lane_idx    = int'(bytes_absorbed_i >> 3);
-    assign head_byte_offset = int'(bytes_absorbed_i[2:0]);
-    assign head_pad_val     = 64'(suffix_i) << (head_byte_offset * 8);
+    assign head_lane_idx    = bytes_absorbed_i >> $clog2(BYTES_PER_LANE);
+    assign head_byte_offset = bytes_absorbed_i[$clog2(BYTES_PER_LANE)-1:0];
+    assign head_pad_val     = (64'(suffix_i)) << {head_byte_offset, 3'b000};
 
-    assign tail_lane_idx    = int'((rate_i >> 6) - 1);
-    assign tail_pad_val     = 64'h8000_0000_0000_0000;
+    assign tail_lane_idx    = (rate_i >> $clog2(LANE_SIZE)) - 1;
+    assign tail_pad_val     = {1'b1, {(LANE_SIZE-1){1'b0}}};
 
     // Single 1600-bit XOR operand plane multiplexed across Absorb and Padding
     logic [63:0] xor_plane [25];
@@ -117,10 +117,10 @@ module keccak_absorb_unit (
             xor_plane[tail_lane_idx] |= tail_pad_val;
         end else begin
             // Normal Absorb Phase
-            start_lane_idx = int'(bytes_absorbed_i >> 3);
+            start_lane_idx = bytes_absorbed_i >> $clog2(BYTES_PER_LANE);
 
             for (int i = 0; i < INPUT_LANE_NUM; i = i + 1) begin
-                automatic int current_lane_idx = start_lane_idx + i;
+                automatic logic [$clog2(ROW_SIZE*COL_SIZE)-1:0] current_lane_idx = start_lane_idx + i;
                 if (current_lane_idx < rate_lane_limit && current_lane_idx < MAX_POSSIBLE_LANES) begin
                     xor_plane[current_lane_idx] = split_lanes[i];
                 end

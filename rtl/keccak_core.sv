@@ -577,20 +577,11 @@ module keccak_core (
 
             // --- State Array Update ---
             if (state_array_wr_en) begin
-                case (state_array_in_sel)
-                    KSU_SEL : begin
-                        state_array <= KSU_STATE_ARRAY_O;
-                    end
-                    ABSORB_SEL : begin
-                        state_array <= KAU_STATE_ARRAY_O;
-                    end
-                    PADDING_SEL : begin
-                        state_array <= KAU_STATE_ARRAY_O;
-                    end
-                    default : begin
-                        state_array <= state_array;
-                    end
-                endcase
+                if (state_array_in_sel == KSU_SEL) begin
+                    state_array <= KSU_STATE_ARRAY_O;
+                end else begin
+                    state_array <= KAU_STATE_ARRAY_O;
+                end
             end
 
             // --- Absorb Counters & Flags ---
