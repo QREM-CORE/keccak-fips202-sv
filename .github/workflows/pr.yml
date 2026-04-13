@@ -133,10 +133,9 @@ jobs:
 
       - name: Post Metrics Comment on PR
         if: github.event_name == 'pull_request'
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: thollander/actions-comment-pull-request@v2
         with:
-          recreate: true
-          path: pr_comment.md
+          filePath: pr_comment.md
 
   # --- 5. Verilog Linter ---
   verilog-lint:
