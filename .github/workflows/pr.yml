@@ -76,10 +76,13 @@ jobs:
       - run: apt-get update && apt-get install -y make g++ python3
       - run: make run_all SIM=verilator
 
-  # --- 3. Synthesis Check (Yosys + Slang) ---
-  # Ensures code can actually become hardware (catches latches/bad syntax)
-  synthesis-check:
+  # --- 3. Synthesis Run (The Scatter Phase) ---
+  synthesis-run:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # If ASIC fails, let FPGA finish to still get partial metrics
+      matrix:
+        target: [fpga, asic]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -91,16 +94,51 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run Dummy Synthesis with Slang
+      - name: Run Synthesis Target
         run: |
-          # 1. Generate the flattened filelist using our build-tools infrastructure
-          # This creates build.f with fully resolved absolute paths
           make build.f
+          python3 build-tools/scripts/synth_metrics.py --top keccak_core --run ${{ matrix.target }}
 
-          # 2. Feed the flattened filelist natively to Slang
-          yosys -m slang -p "read_slang -f build.f; synth -top keccak_core"
+      - name: Upload Metrics Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics-${{ matrix.target }}
+          path: metrics-${{ matrix.target }}.json
+          retention-days: 1 # Only needed to pass to the reporter job
 
-  # --- 4. Verilog Linter ---
+  # --- 4. Synthesis Report (The Gather Phase) ---
+  synthesis-report:
+    needs: [synthesis-run]
+    # We want this to run even if one of the matrix jobs failed (e.g., ASIC crashed but FPGA passed)
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download all Metric Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: metrics-*
+          merge-multiple: true
+
+      - name: Generate PR Comment
+        run: |
+          python3 build-tools/scripts/synth_metrics.py --top keccak_core --report
+          cat pr_comment.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Post Metrics Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          recreate: true
+          path: pr_comment.md
+
+  # --- 5. Verilog Linter ---
   verilog-lint:
     runs-on: ubuntu-latest
     permissions:
