@@ -68,15 +68,20 @@ module iota_step (
     // ============================================================
     // Step 2: XOR corresponding round constants into lane (0,0)
     // ============================================================
+    logic [LANE_SIZE-1:0] round_constant;
+
     always_comb begin
-        // Default
+        // Default passthrough
         state_array_o = state_array_i;
 
-        // Iterate through the 7 pre-defined bit positions for this round
-        for (int j = 0; j<L_SIZE; j=j+1) begin
-                state_array_o[0][0][BITMAPPING[j]] = state_array_o[0][0][BITMAPPING[j]] ^
-                                                        ROUNDCONSTANTS[round_index_i][j];
+        // Build 64-bit round constant
+        round_constant = '0;
+        for (int j = 0; j < L_SIZE; j = j + 1) begin
+            round_constant[BITMAPPING[j]] = ROUNDCONSTANTS[round_index_i][j];
         end
+
+        // Apply constant to lane (0,0) in single operation
+        state_array_o[0][0] = state_array_i[0][0] ^ round_constant;
     end
 
 endmodule
