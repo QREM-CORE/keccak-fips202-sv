@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+permissions:
+  pull-requests: write
+  contents: read
+
 jobs:
   call-central-builder:
     uses: QREM-CORE/build-tools/.github/workflows/central-builder.yml@ci_revolution
