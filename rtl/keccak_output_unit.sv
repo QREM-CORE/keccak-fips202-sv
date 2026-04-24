@@ -82,8 +82,10 @@ module keccak_output_unit (
     logic [5:0] output_bytes_this_cycle;
 
     always_comb begin
-        // Default: Assume we can output a full 32-byte bus this beat.
-        output_bytes_this_cycle = (DWIDTH/8);
+        logic [XOF_LEN_WIDTH-1:0] diff;
+        // Default assignments to avoid latches
+        output_bytes_this_cycle = (DWIDTH / 8);
+        diff = '0;
 
         // Constraint 1: Rate Limit
         if (bytes_remaining_in_rate < output_bytes_this_cycle) begin
@@ -92,7 +94,6 @@ module keccak_output_unit (
 
         // Constraint 2: Bounded XOF Target Emptying
         if (is_xof_fixed_len_i && (keccak_mode_i == SHAKE128 || keccak_mode_i == SHAKE256)) begin
-            logic [XOF_LEN_WIDTH-1:0] diff;
             diff = xof_len_i - total_bytes_squeezed_i;
             if (diff < output_bytes_this_cycle) begin
                 output_bytes_this_cycle = diff[5:0];
