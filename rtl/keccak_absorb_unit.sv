@@ -105,6 +105,9 @@ module keccak_absorb_unit (
     logic [63:0] xor_plane [25];
 
     always_comb begin
+        // Default assignments to avoid latches
+        start_lane_idx = '0;
+
         // Zero all operands
         for (int i = 0; i < 25; i++) begin
             xor_plane[i] = '0;
