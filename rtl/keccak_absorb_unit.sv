@@ -106,28 +106,27 @@ module keccak_absorb_unit (
 
     always_comb begin
         // Default assignments to avoid latches
-        start_lane_idx = '0;
+        start_lane_idx = bytes_absorbed_i >> $clog2(BYTES_PER_LANE);
 
-        // Zero all operands
         for (int i = 0; i < 25; i++) begin
-            xor_plane[i] = '0;
-        end
+            logic [LANE_SIZE-1:0] lane_val;
+            lane_val = '0;
 
-        if (pad_en_i) begin
-            // Padding Phase (Reuses the XOR plane)
-            // Can merge if head == tail!
-            xor_plane[head_lane_idx] |= head_pad_val;
-            xor_plane[tail_lane_idx] |= tail_pad_val;
-        end else begin
-            // Normal Absorb Phase
-            start_lane_idx = bytes_absorbed_i >> $clog2(BYTES_PER_LANE);
-
-            for (int i = 0; i < INPUT_LANE_NUM; i = i + 1) begin
-                automatic logic [$clog2(ROW_SIZE*COL_SIZE)-1:0] current_lane_idx = start_lane_idx + i;
-                if (current_lane_idx < rate_lane_limit && current_lane_idx < MAX_POSSIBLE_LANES) begin
-                    xor_plane[current_lane_idx] = split_lanes[i];
+            if (pad_en_i) begin
+                // Padding Phase: Determine if this lane receives head or tail padding
+                if (i == head_lane_idx) lane_val |= head_pad_val;
+                if (i == tail_lane_idx) lane_val |= tail_pad_val;
+            end else begin
+                // Normal Absorb Phase: Check if this lane corresponds to an input lane
+                for (int j = 0; j < INPUT_LANE_NUM; j++) begin
+                    if (i == (start_lane_idx + j)) begin
+                        if (i < rate_lane_limit && i < MAX_POSSIBLE_LANES) begin
+                            lane_val = split_lanes[j];
+                        end
+                    end
                 end
             end
+            xor_plane[i] = lane_val;
         end
 
         // Single monolithic 1600-bit XOR execution
