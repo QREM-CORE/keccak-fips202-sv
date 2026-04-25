@@ -76,8 +76,12 @@ module iota_step (
 
         // Build 64-bit round constant
         round_constant = '0;
-        for (int j = 0; j < L_SIZE; j = j + 1) begin
-            round_constant[BITMAPPING[j]] = ROUNDCONSTANTS[round_index_i][j];
+        for (int i = 0; i < MAX_ROUNDS; i = i + 1) begin
+            if (round_index_i == i[ROUND_INDEX_SIZE-1:0]) begin
+                for (int j = 0; j < L_SIZE; j = j + 1) begin
+                    round_constant[BITMAPPING[j]] = ROUNDCONSTANTS[i][j];
+                end
+            end
         end
 
         // Apply constant to lane (0,0) in single operation

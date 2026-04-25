@@ -69,7 +69,12 @@ module keccak_output_unit (
     assign current_word_idx = bytes_squeezed_i >> $clog2(DWIDTH / 8);
 
     always_comb begin
-        data_o = state_words[current_word_idx];
+        data_o = '0;
+        for (int i = 0; i < NUM_OUTPUT_WORDS; i++) begin
+            if (current_word_idx == i[$clog2(NUM_OUTPUT_WORDS)-1:0]) begin
+                data_o = state_words[i];
+            end
+        end
     end
 
     // ==========================================================
