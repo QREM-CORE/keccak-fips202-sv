@@ -12,16 +12,17 @@ permissions:
 
 jobs:
   call-central-builder:
-    uses: QREM-CORE/build-tools/.github/workflows/central-builder.yml@main
+    uses: QREM-CORE/build-tools/.github/workflows/central-builder.yml@utilize_sv2v
     with:
       # Automatically targets the repository and specific commit of the PR
       rtl_repo: ${{ github.repository }}
       commit_sha: ${{ github.sha }}
 
       # Your comma-separated top modules for the Yosys synthesis matrix
-      top_modules: 'keccak_core'
+      top_modules: 'keccak_core'`
 
       enable_synth: true
       enable_lint: true
       enable_verilator: true
       enable_vsim: true
+      enable_sv2v: true
