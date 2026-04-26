@@ -47,19 +47,23 @@ module keccak_output_unit (
     logic [1599:0] state_linear;
     logic [NUM_OUTPUT_WORDS-1:0][DWIDTH-1:0] state_words;
 
-    always_comb begin
-        // 1. Flatten 3D to 1D
-        for (int y = 0; y < 5; y++) begin
-            for (int x = 0; x < 5; x++) begin
-                // Calculate linear lane index: i = 5*y + x
-                state_linear[(x + 5*y) * 64 +: 64] = state_array_i[x][y];
+    // 1. Flatten 3D to 1D via Generate
+    genvar x_gen, y_gen;
+    generate
+        for (y_gen = 0; y_gen < 5; y_gen = y_gen + 1) begin : g_flat_y
+            for (x_gen = 0; x_gen < 5; x_gen = x_gen + 1) begin : g_flat_x
+                assign state_linear[(x_gen + 5*y_gen) * 64 +: 64] = state_array_i[x_gen][y_gen];
             end
         end
-        // 2. Cast 1D array into Word-Aligned Boundaries
-        for (int i = 0; i < NUM_OUTPUT_WORDS; i++) begin
-            state_words[i] = state_linear[i * DWIDTH +: DWIDTH];
+    endgenerate
+
+    // 2. Cast 1D array into Word-Aligned Boundaries via Generate
+    genvar i_gen;
+    generate
+        for (i_gen = 0; i_gen < NUM_OUTPUT_WORDS; i_gen = i_gen + 1) begin : g_cast
+            assign state_words[i_gen] = state_linear[i_gen * DWIDTH +: DWIDTH];
         end
-    end
+    endgenerate
 
     // ==========================================================
     // 3. EXTRACT OUTPUT WORD (High-Fmax Multiplexer)
