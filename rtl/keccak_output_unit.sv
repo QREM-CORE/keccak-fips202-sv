@@ -69,12 +69,34 @@ module keccak_output_unit (
     assign current_word_idx = bytes_squeezed_i >> $clog2(DWIDTH / 8);
 
     always_comb begin
-        data_o = '0;
-        for (int i = 0; i < NUM_OUTPUT_WORDS; i++) begin
-            if (current_word_idx == i[$clog2(NUM_OUTPUT_WORDS)-1:0]) begin
-                data_o = state_words[i];
-            end
-        end
+        case (current_word_idx)
+            'd 0 : data_o = state_words[ 0];
+            'd 1 : data_o = state_words[ 1];
+            'd 2 : data_o = state_words[ 2];
+            'd 3 : data_o = state_words[ 3];
+            'd 4 : data_o = state_words[ 4];
+            'd 5 : data_o = state_words[ 5];
+            'd 6 : data_o = state_words[ 6];
+            'd 7 : data_o = state_words[ 7];
+            'd 8 : data_o = state_words[ 8];
+            'd 9 : data_o = state_words[ 9];
+            'd10 : data_o = state_words[10];
+            'd11 : data_o = state_words[11];
+            'd12 : data_o = state_words[12];
+            'd13 : data_o = state_words[13];
+            'd14 : data_o = state_words[14];
+            'd15 : data_o = state_words[15];
+            'd16 : data_o = state_words[16];
+            'd17 : data_o = state_words[17];
+            'd18 : data_o = state_words[18];
+            'd19 : data_o = state_words[19];
+            'd20 : data_o = state_words[20];
+            'd21 : data_o = state_words[21];
+            'd22 : data_o = state_words[22];
+            'd23 : data_o = state_words[23];
+            'd24 : data_o = state_words[24];
+            default: data_o = '0;
+        endcase
     end
 
     // ==========================================================

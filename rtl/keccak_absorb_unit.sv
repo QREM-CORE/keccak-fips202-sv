@@ -86,6 +86,7 @@ module keccak_absorb_unit (
     assign rate_lane_limit = rate_i[RATE_WIDTH-1:$clog2(LANE_SIZE)]; // rate_i / 64
 
     logic [$clog2(ROW_SIZE*COL_SIZE)-1:0] start_lane_idx;
+    assign start_lane_idx = bytes_absorbed_i >> $clog2(BYTES_PER_LANE);
 
     // Padder Coordinates
     logic [$clog2(ROW_SIZE*COL_SIZE)-1:0] head_lane_idx;
@@ -104,38 +105,41 @@ module keccak_absorb_unit (
     // Single 1600-bit XOR operand plane multiplexed across Absorb and Padding
     logic [63:0] xor_plane [25];
 
+    // Construct the XOR operand plane
     always_comb begin
-        // Default assignments to avoid latches
-        start_lane_idx = bytes_absorbed_i >> $clog2(BYTES_PER_LANE);
+        // Default to zero
+        for (int i = 0; i < 25; i++) xor_plane[i] = '0;
 
-        for (int i = 0; i < 25; i++) begin
-            logic [LANE_SIZE-1:0] lane_val;
-            lane_val = '0;
-
-            if (pad_en_i) begin
-                // Padding Phase: Determine if this lane receives head or tail padding
-                if (i == head_lane_idx) lane_val |= head_pad_val;
-                if (i == tail_lane_idx) lane_val |= tail_pad_val;
-            end else begin
-                // Normal Absorb Phase: Check if this lane corresponds to an input lane
-                for (int j = 0; j < INPUT_LANE_NUM; j++) begin
-                    if (i == (start_lane_idx + j)) begin
-                        if (i < rate_lane_limit && i < MAX_POSSIBLE_LANES) begin
-                            lane_val = split_lanes[j];
-                        end
+        if (pad_en_i) begin
+            // Padding Phase
+            // Use explicit checks for head/tail to avoid variable indexing in a complex way
+            for (int i = 0; i < 25; i++) begin
+                if (i == head_lane_idx) xor_plane[i] |= head_pad_val;
+                if (i == tail_lane_idx) xor_plane[i] |= tail_pad_val;
+            end
+        end else begin
+            // Normal Absorb Phase
+            // INPUT_LANE_NUM is 1 (DWIDTH=64, LANE_SIZE=64)
+            // Match the single input lane to its target offset
+            for (int i = 0; i < 25; i++) begin
+                if (i == start_lane_idx) begin
+                    if (i < rate_lane_limit && i < MAX_POSSIBLE_LANES) begin
+                        xor_plane[i] = split_lanes[0];
                     end
                 end
             end
-            xor_plane[i] = lane_val;
-        end
-
-        // Single monolithic 1600-bit XOR execution
-        for (int i = 0; i < 25; i++) begin
-            automatic int x = i % COL_SIZE;
-            automatic int y = i / COL_SIZE;
-            state_array_o[x][y] = state_array_i[x][y] ^ xor_plane[i];
         end
     end
+
+    // Single monolithic 1600-bit XOR execution via generate
+    genvar x_idx, y_idx;
+    generate
+        for (y_idx = 0; y_idx < 5; y_idx = y_idx + 1) begin : g_xor_y
+            for (x_idx = 0; x_idx < 5; x_idx = x_idx + 1) begin : g_xor_x
+                assign state_array_o[x_idx][y_idx] = state_array_i[x_idx][y_idx] ^ xor_plane[x_idx + 5*y_idx];
+            end
+        end
+    endgenerate
 
 endmodule
 
