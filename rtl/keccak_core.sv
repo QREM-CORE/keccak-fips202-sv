@@ -408,6 +408,7 @@ module keccak_core (
     // ----------------------------------------------------------
     always_comb begin
         // Defaults:
+        state_array_in_sel = KSU_SEL;
 
         // ----- Outputs -----
         // AXI4-Stream Signals - Sink

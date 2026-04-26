@@ -47,19 +47,23 @@ module keccak_output_unit (
     logic [1599:0] state_linear;
     logic [NUM_OUTPUT_WORDS-1:0][DWIDTH-1:0] state_words;
 
-    always_comb begin
-        // 1. Flatten 3D to 1D
-        for (int y = 0; y < 5; y++) begin
-            for (int x = 0; x < 5; x++) begin
-                // Calculate linear lane index: i = 5*y + x
-                state_linear[(x + 5*y) * 64 +: 64] = state_array_i[x][y];
+    // 1. Flatten 3D to 1D via Generate
+    genvar x_gen, y_gen;
+    generate
+        for (y_gen = 0; y_gen < 5; y_gen = y_gen + 1) begin : g_flat_y
+            for (x_gen = 0; x_gen < 5; x_gen = x_gen + 1) begin : g_flat_x
+                assign state_linear[(x_gen + 5*y_gen) * 64 +: 64] = state_array_i[x_gen][y_gen];
             end
         end
-        // 2. Cast 1D array into Word-Aligned Boundaries
-        for (int i = 0; i < NUM_OUTPUT_WORDS; i++) begin
-            state_words[i] = state_linear[i * DWIDTH +: DWIDTH];
+    endgenerate
+
+    // 2. Cast 1D array into Word-Aligned Boundaries via Generate
+    genvar i_gen;
+    generate
+        for (i_gen = 0; i_gen < NUM_OUTPUT_WORDS; i_gen = i_gen + 1) begin : g_cast
+            assign state_words[i_gen] = state_linear[i_gen * DWIDTH +: DWIDTH];
         end
-    end
+    endgenerate
 
     // ==========================================================
     // 3. EXTRACT OUTPUT WORD (High-Fmax Multiplexer)
@@ -69,7 +73,34 @@ module keccak_output_unit (
     assign current_word_idx = bytes_squeezed_i >> $clog2(DWIDTH / 8);
 
     always_comb begin
-        data_o = state_words[current_word_idx];
+        case (current_word_idx)
+            'd 0 : data_o = state_words[ 0];
+            'd 1 : data_o = state_words[ 1];
+            'd 2 : data_o = state_words[ 2];
+            'd 3 : data_o = state_words[ 3];
+            'd 4 : data_o = state_words[ 4];
+            'd 5 : data_o = state_words[ 5];
+            'd 6 : data_o = state_words[ 6];
+            'd 7 : data_o = state_words[ 7];
+            'd 8 : data_o = state_words[ 8];
+            'd 9 : data_o = state_words[ 9];
+            'd10 : data_o = state_words[10];
+            'd11 : data_o = state_words[11];
+            'd12 : data_o = state_words[12];
+            'd13 : data_o = state_words[13];
+            'd14 : data_o = state_words[14];
+            'd15 : data_o = state_words[15];
+            'd16 : data_o = state_words[16];
+            'd17 : data_o = state_words[17];
+            'd18 : data_o = state_words[18];
+            'd19 : data_o = state_words[19];
+            'd20 : data_o = state_words[20];
+            'd21 : data_o = state_words[21];
+            'd22 : data_o = state_words[22];
+            'd23 : data_o = state_words[23];
+            'd24 : data_o = state_words[24];
+            default: data_o = '0;
+        endcase
     end
 
     // ==========================================================
