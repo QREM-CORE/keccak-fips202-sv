@@ -25,12 +25,14 @@ module keccak_output_unit (
     input  wire  [BYTE_ABSORB_WIDTH-1:0]    bytes_squeezed_i,      // Counter from FSM
     input  wire  [XOF_LEN_WIDTH-1:0]        xof_len_i,             // Target XOF bytes requested
     input  wire                             is_xof_fixed_len_i,    // Flag for fixed-length XOF (0 = continuous)
-    input  wire  [XOF_LEN_WIDTH-1:0]        total_bytes_squeezed_i,// Total bytes sent so far out of XOF target
+    input  wire  [XOF_LEN_WIDTH-1:0]        xof_remaining_i,      // Phase 3: Down-counter
+    input  wire  [BYTE_ABSORB_WIDTH-1:0]    max_bytes_absorbed_i, // Phase 2: Pre-shifted rate
 
     output logic [BYTE_ABSORB_WIDTH-1:0]    bytes_squeezed_o,      // Next counter value
     output logic                            squeeze_perm_needed_o, // Flag: Rate is empty!
     output logic [DWIDTH-1:0]               data_o,                // 64 Bits
     output logic [DWIDTH/8-1:0]             keep_o,                // Valid bytes
+    output logic [3:0]                      byte_count_o,          // Phase 2: Direct count pass
     output logic                            last_o                 // End of Hash
 );
     // ==========================================================
@@ -107,8 +109,8 @@ module keccak_output_unit (
     // 4. VALID BYTE CALCULATION (KEEP SIGNAL)
     // ==========================================================
     logic [RATE_WIDTH-1:0] bytes_remaining_in_rate;
-    // Note: rate_i is bits, convert to bytes.
-    assign bytes_remaining_in_rate = (rate_i >> 3) - bytes_squeezed_i;
+    // Use pre-shifted rate to avoid combinatorial shift in timing path
+    assign bytes_remaining_in_rate = max_bytes_absorbed_i - bytes_squeezed_i;
 
     logic [5:0] output_bytes_this_cycle;
 
@@ -125,11 +127,11 @@ module keccak_output_unit (
 
         // Constraint 2: Bounded XOF Target Emptying
         if (is_xof_fixed_len_i && (keccak_mode_i == SHAKE128 || keccak_mode_i == SHAKE256)) begin
-            diff = xof_len_i - total_bytes_squeezed_i;
-            if (diff < output_bytes_this_cycle) begin
-                output_bytes_this_cycle = diff[5:0];
+            if (xof_remaining_i < output_bytes_this_cycle) begin
+                output_bytes_this_cycle = xof_remaining_i[5:0];
             end
         end
+        byte_count_o = output_bytes_this_cycle[3:0];
     end
 
     always_comb begin
@@ -162,7 +164,7 @@ module keccak_output_unit (
             // XOF (SHAKE): Infinite. Rely on external stop signal or fixed len limit
             default: begin
                 if (is_xof_fixed_len_i) begin
-                    if (total_bytes_squeezed_i + output_bytes_this_cycle >= xof_len_i) begin
+                    if (output_bytes_this_cycle >= xof_remaining_i) begin
                         last_o = 1'b1;
                     end else begin
                         last_o = 1'b0;

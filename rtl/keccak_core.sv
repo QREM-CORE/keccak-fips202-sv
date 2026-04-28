@@ -125,9 +125,11 @@ module keccak_core (
 
     // KSU Permutation Registers
     reg [ROUND_INDEX_SIZE-1:0]      round_idx;
+    reg [LANE_SIZE-1:0]             round_constant_r;
 
     // Keccak Parameter Setup Registers
     reg [RATE_WIDTH-1:0]            rate; // Rate in BITS (e.g., 1088 for SHA3-256)
+    reg [BYTE_ABSORB_WIDTH-1:0]     max_bytes_absorbed_r; // Phase 2: Registered LTP opt
     reg [SUFFIX_WIDTH-1:0]          suffix;
 
     // Keccak Mode Register
@@ -142,9 +144,9 @@ module keccak_core (
     reg                             msg_received;   // Full message has been received
 
     // Squeeze Signals
-    logic   [BYTE_ABSORB_WIDTH-1:0] bytes_squeezed;
-    logic   [XOF_LEN_WIDTH-1:0]     total_bytes_squeezed;
-    logic   [5:0]                   bytes_in_this_beat; // Max 8 bytes (previously 32)
+    logic   [BYTE_ABSORB_WIDTH-1:0]    bytes_squeezed;
+    reg     [XOF_LEN_WIDTH-1:0]        xof_remaining_r; // Phase 3: Down-counter
+    logic   [5:0]                   bytes_in_this_beat; // Popcount of m_axis_tkeep
 
     // 1C. Enable Wires
     // ----------------------------------------------------------
@@ -179,7 +181,7 @@ module keccak_core (
     // Keccak Step Unit (KSU) Module Wires
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KSU_STATE_ARRAY_I;
     wire                            KSU_PERM_EN_I;
-    wire [ROUND_INDEX_SIZE-1:0]     KSU_ROUND_INDEX_I;
+    wire [LANE_SIZE-1:0]            KSU_ROUND_CONST_I;
 
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KSU_STATE_ARRAY_O;
 
@@ -204,25 +206,21 @@ module keccak_core (
     wire [BYTE_ABSORB_WIDTH-1:0]    KOU_BYTES_SQUEEZED_I;
     wire [XOF_LEN_WIDTH-1:0]        KOU_XOF_LEN_I;
     wire                            KOU_IS_XOF_FIXED_LEN_I;
-    wire [XOF_LEN_WIDTH-1:0]        KOU_TOTAL_BYTES_SQUEEZED_I;
+    wire [XOF_LEN_WIDTH-1:0]        KOU_XOF_REMAINING_I;
+    wire [BYTE_ABSORB_WIDTH-1:0]    KOU_MAX_BYTES_ABSORBED_I;
 
     wire [BYTE_ABSORB_WIDTH-1:0]    KOU_BYTES_SQUEEZED_O;
     wire                            KOU_PERM_NEEDED_O;
     wire [DWIDTH-1:0]               KOU_DATA_O;
     wire [KEEP_WIDTH-1:0]           KOU_KEEP_O;
+    wire [3:0]                      KOU_BYTE_COUNT_O; // Phase 2: Direct count pass
     wire                            KOU_LAST_O;
 
     // 1E. Wire Assignments
     // ----------------------------------------------------------
-
-    // Max Byte Absorb Value
-    logic [RATE_WIDTH-1:0] max_bytes_absorbed;
-    assign max_bytes_absorbed   = rate >> 3;
-
-    // Calculate Ready
-    // We are ready if we aren't full and aren't done.
     logic internal_ready;
-    assign internal_ready = (bytes_absorbed != max_bytes_absorbed) &&
+    // We are ready if we aren't full and haven't finished message.
+    assign internal_ready = (bytes_absorbed != max_bytes_absorbed_r) &&
                             (!msg_received);
 
     // ==========================================================
@@ -246,13 +244,13 @@ module keccak_core (
     keccak_step_unit KSU (
         .state_array_i  (KSU_STATE_ARRAY_I),
         .perm_en_i      (KSU_PERM_EN_I),
-        .round_index_i  (KSU_ROUND_INDEX_I),
+        .round_constant_i(KSU_ROUND_CONST_I),
 
         .state_array_o  (KSU_STATE_ARRAY_O)
     );
     assign KSU_STATE_ARRAY_I    = state_array;
     assign KSU_PERM_EN_I        = (state == STATE_PERMUTE);
-    assign KSU_ROUND_INDEX_I    = round_idx;
+    assign KSU_ROUND_CONST_I    = round_constant_r;
 
     // 2C. KECCAK ABSORB UNIT (KAU) (Now handles Optional Padding)
     // ----------------------------------------------------------
@@ -290,12 +288,14 @@ module keccak_core (
         .bytes_squeezed_i       (KOU_BYTES_SQUEEZED_I),
         .xof_len_i              (KOU_XOF_LEN_I),
         .is_xof_fixed_len_i     (KOU_IS_XOF_FIXED_LEN_I),
-        .total_bytes_squeezed_i (KOU_TOTAL_BYTES_SQUEEZED_I),
+        .xof_remaining_i        (KOU_XOF_REMAINING_I),
+        .max_bytes_absorbed_i   (KOU_MAX_BYTES_ABSORBED_I),
 
         .bytes_squeezed_o       (KOU_BYTES_SQUEEZED_O),
         .squeeze_perm_needed_o  (KOU_PERM_NEEDED_O),
         .data_o                 (KOU_DATA_O),
         .keep_o                 (KOU_KEEP_O),
+        .byte_count_o           (KOU_BYTE_COUNT_O),
         .last_o                 (KOU_LAST_O)
     );
     assign KOU_STATE_ARRAY_I          = state_array;
@@ -304,7 +304,8 @@ module keccak_core (
     assign KOU_BYTES_SQUEEZED_I       = bytes_squeezed;
     assign KOU_XOF_LEN_I              = target_xof_len;
     assign KOU_IS_XOF_FIXED_LEN_I     = is_xof_fixed_len;
-    assign KOU_TOTAL_BYTES_SQUEEZED_I = total_bytes_squeezed;
+    assign KOU_XOF_REMAINING_I        = xof_remaining_r;
+    assign KOU_MAX_BYTES_ABSORBED_I   = max_bytes_absorbed_r;
 
     // ==========================================================
     // 3. 3-PROCESS CONTROL FSM
@@ -336,7 +337,7 @@ module keccak_core (
 
             STATE_ABSORB : begin
                 // PRIORITY 1: If current rate block is full, run permutation
-                if (bytes_absorbed == max_bytes_absorbed) begin
+                if (bytes_absorbed == max_bytes_absorbed_r) begin
                     next_state = STATE_PERMUTE;
 
                 // PRIORITY 2: Message fully received, move on to padding stage
@@ -448,7 +449,7 @@ module keccak_core (
                 t_ready_o = internal_ready;
 
                 // PRIORITY 1: If current rate block is full, run permutation
-                if (bytes_absorbed == max_bytes_absorbed) begin
+                if (bytes_absorbed == max_bytes_absorbed_r) begin
                     perm_en = 1'b1;
 
                 // PRIORITY 2: Message fully received, move on to padding stage
@@ -495,7 +496,7 @@ module keccak_core (
                 t_keep_o    = KOU_KEEP_O;
 
                 if (t_valid_o && t_ready_i) begin
-                    update_total_squeezed_en = 1'b1;
+                    // update_total_squeezed_en removed for Phase 3
                 end
 
                 if (stop_i) begin
@@ -504,11 +505,11 @@ module keccak_core (
                 end else if (t_ready_i) begin
                     // A. Check Fixed Hash Done (SHA3-*)
                     if (KOU_LAST_O) begin
-                        init_wr_en = 1'b1;
 
                     // B. Check Rate Empty -> Re-Permute (SHAKE)
                     end else if (KOU_PERM_NEEDED_O) begin
                         perm_en = 1'b1; // Reset counters
+                        squeeze_wr_en = 1'b1; // Phase 3: Decrement XOF counter even on boundary
 
                     // C. Continue Squeezing
                     end else begin
@@ -526,11 +527,8 @@ module keccak_core (
             end
         endcase
 
-        // Calculate bytes in this beat (popcount of t_keep_o) at the END of the combinational block
-        bytes_in_this_beat = '0;
-        for (int i = 0; i < KEEP_WIDTH; i++) begin
-            if (t_keep_o[i]) bytes_in_this_beat = bytes_in_this_beat + 1'b1;
-        end
+        // Bypass redundant popcount loop by using direct count from Output Unit (KOU).
+        bytes_in_this_beat = {2'b00, KOU_BYTE_COUNT_O};
     end
 
     // ==========================================================
@@ -548,6 +546,7 @@ module keccak_core (
 
             // Squeeze Signals
             bytes_squeezed      <= 'b0;
+            xof_remaining_r      <= 'b0;
         end else begin
             // --- Initialization & Reset ---
             if (init_wr_en) begin
@@ -556,19 +555,21 @@ module keccak_core (
                 target_xof_len   <= xof_len_i;
                 is_xof_fixed_len <= (xof_len_i != 0);
                 rate             <= KPU_RATE_O;
+                max_bytes_absorbed_r <= KPU_RATE_O >> 3; // Phase 2: Register config-derived value
                 suffix           <= KPU_SUFFIX_O;
 
                 // 2. CRITICAL: Wipe the State Logic
                 state_array      <= '0;  // Must be 0 before starting new Absorb
                 bytes_absorbed   <= '0;
                 bytes_squeezed   <= '0;
-                total_bytes_squeezed <= '0;
+                xof_remaining_r  <= xof_len_i;
                 msg_received     <= '0;
 
                 // 3. Clear Internal Flags
                 absorb_done      <= '0;
 
                 round_idx        <= '0;
+                round_constant_r <= KECCAK_ROUND_CONSTANTS[0];
 
             // Reset bytes absorbed after absorb permutation
             end else if (perm_en) begin
@@ -603,17 +604,18 @@ module keccak_core (
             // --- Permutation Round Control ---
             if (rst_round_idx_en) begin
                 round_idx <= 'b0;
+                round_constant_r <= KECCAK_ROUND_CONSTANTS[0];
             end else if (inc_round_idx_en) begin
                 round_idx <= round_idx + 'b1;
+                round_constant_r <= KECCAK_ROUND_CONSTANTS[round_idx + 1];
             end
 
             // --- Squeeze Counters ---
             if (squeeze_wr_en) begin
-                bytes_squeezed <= KOU_BYTES_SQUEEZED_O;
-            end
-
-            if (update_total_squeezed_en) begin
-                total_bytes_squeezed <= total_bytes_squeezed + bytes_in_this_beat;
+                xof_remaining_r <= xof_remaining_r - {12'b0, KOU_BYTE_COUNT_O};
+                if (!perm_en) begin
+                    bytes_squeezed <= KOU_BYTES_SQUEEZED_O;
+                end
             end
         end
     end
