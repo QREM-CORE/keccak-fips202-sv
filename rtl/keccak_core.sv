@@ -144,8 +144,8 @@ module keccak_core (
     reg                             msg_received;   // Full message has been received
 
     // Squeeze Signals
-    logic   [BYTE_ABSORB_WIDTH-1:0] bytes_squeezed;
-    logic   [XOF_LEN_WIDTH-1:0]     total_bytes_squeezed;
+    logic   [BYTE_ABSORB_WIDTH-1:0]    bytes_squeezed;
+    reg     [XOF_LEN_WIDTH-1:0]        xof_remaining_r; // Phase 3: Down-counter
     logic   [5:0]                   bytes_in_this_beat; // Popcount of m_axis_tkeep
 
     // 1C. Enable Wires
@@ -290,7 +290,8 @@ module keccak_core (
         .bytes_squeezed_i       (KOU_BYTES_SQUEEZED_I),
         .xof_len_i              (KOU_XOF_LEN_I),
         .is_xof_fixed_len_i     (KOU_IS_XOF_FIXED_LEN_I),
-        .total_bytes_squeezed_i (KOU_TOTAL_BYTES_SQUEEZED_I),
+        .xof_remaining_i        (xof_remaining_r),
+        .max_bytes_absorbed_i   (max_bytes_absorbed_r),
 
         .bytes_squeezed_o       (KOU_BYTES_SQUEEZED_O),
         .squeeze_perm_needed_o  (KOU_PERM_NEEDED_O),
@@ -305,7 +306,6 @@ module keccak_core (
     assign KOU_BYTES_SQUEEZED_I       = bytes_squeezed;
     assign KOU_XOF_LEN_I              = target_xof_len;
     assign KOU_IS_XOF_FIXED_LEN_I     = is_xof_fixed_len;
-    assign KOU_TOTAL_BYTES_SQUEEZED_I = total_bytes_squeezed;
 
     // ==========================================================
     // 3. 3-PROCESS CONTROL FSM
@@ -496,7 +496,7 @@ module keccak_core (
                 t_keep_o    = KOU_KEEP_O;
 
                 if (t_valid_o && t_ready_i) begin
-                    update_total_squeezed_en = 1'b1;
+                    // update_total_squeezed_en removed for Phase 3
                 end
 
                 if (stop_i) begin
@@ -505,11 +505,11 @@ module keccak_core (
                 end else if (t_ready_i) begin
                     // A. Check Fixed Hash Done (SHA3-*)
                     if (KOU_LAST_O) begin
-                        init_wr_en = 1'b1;
 
                     // B. Check Rate Empty -> Re-Permute (SHAKE)
                     end else if (KOU_PERM_NEEDED_O) begin
                         perm_en = 1'b1; // Reset counters
+                        squeeze_wr_en = 1'b1; // Phase 3: Decrement XOF counter even on boundary
 
                     // C. Continue Squeezing
                     end else begin
@@ -547,6 +547,7 @@ module keccak_core (
 
             // Squeeze Signals
             bytes_squeezed      <= 'b0;
+            xof_remaining_r      <= 'b0;
         end else begin
             // --- Initialization & Reset ---
             if (init_wr_en) begin
@@ -562,7 +563,7 @@ module keccak_core (
                 state_array      <= '0;  // Must be 0 before starting new Absorb
                 bytes_absorbed   <= '0;
                 bytes_squeezed   <= '0;
-                total_bytes_squeezed <= '0;
+                xof_remaining_r  <= xof_len_i;
                 msg_received     <= '0;
 
                 // 3. Clear Internal Flags
@@ -612,11 +613,10 @@ module keccak_core (
 
             // --- Squeeze Counters ---
             if (squeeze_wr_en) begin
-                bytes_squeezed <= KOU_BYTES_SQUEEZED_O;
-            end
-
-            if (update_total_squeezed_en) begin
-                total_bytes_squeezed <= total_bytes_squeezed + bytes_in_this_beat;
+                xof_remaining_r <= xof_remaining_r - {12'b0, KOU_BYTE_COUNT_O};
+                if (!perm_en) begin
+                    bytes_squeezed <= KOU_BYTES_SQUEEZED_O;
+                end
             end
         end
     end

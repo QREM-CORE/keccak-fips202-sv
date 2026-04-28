@@ -21,12 +21,14 @@ module keccak_output_unit_tb ();
     logic [BYTE_ABSORB_WIDTH-1:0]   bytes_squeezed_i;
     logic [XOF_LEN_WIDTH-1:0]       xof_len_i;
     logic                           is_xof_fixed_len_i;
-    logic [XOF_LEN_WIDTH-1:0]       total_bytes_squeezed_i;
+    logic [XOF_LEN_WIDTH-1:0]       xof_remaining_i;
+    logic [BYTE_ABSORB_WIDTH-1:0]   max_bytes_absorbed_i;
 
     logic [BYTE_ABSORB_WIDTH-1:0]   bytes_squeezed_o;
     logic                           squeeze_perm_needed_o;
     logic [DWIDTH-1:0]              data_o;
     logic [DWIDTH/8-1:0]            keep_o;
+    logic [3:0]                     byte_count_o;
     logic                           last_o;
 
     // Instance
@@ -37,12 +39,14 @@ module keccak_output_unit_tb ();
         .bytes_squeezed_i       (bytes_squeezed_i),
         .xof_len_i              (xof_len_i),
         .is_xof_fixed_len_i     (is_xof_fixed_len_i),
-        .total_bytes_squeezed_i (total_bytes_squeezed_i),
+        .max_bytes_absorbed_i   (max_bytes_absorbed_i),
+        .xof_remaining_i        (xof_remaining_i),
 
         .bytes_squeezed_o       (bytes_squeezed_o),
         .squeeze_perm_needed_o  (squeeze_perm_needed_o),
         .data_o                 (data_o),
         .keep_o                 (keep_o),
+        .byte_count_o           (byte_count_o),
         .last_o                 (last_o)
     );
 
@@ -177,10 +181,11 @@ module keccak_output_unit_tb ();
         $display("TC1: SHA3-256 Output Beat 1/4 (8 Bytes)");
         keccak_mode_i    = SHA3_256;
         rate_i           = RATE_SHA3_256;
+        max_bytes_absorbed_i = RATE_SHA3_256 >> 3;
         bytes_squeezed_i = 0;
         xof_len_i        = 0;
         is_xof_fixed_len_i = 0;
-        total_bytes_squeezed_i = 0;
+        xof_remaining_i  = 0;
         #1;
 
         exp_data_build = '0;
@@ -195,6 +200,7 @@ module keccak_output_unit_tb ();
         $display("\nTC2: SHA3-512 Beat 1/8");
         keccak_mode_i    = SHA3_512;
         rate_i           = RATE_SHA3_512; // 576 bits = 72 bytes
+        max_bytes_absorbed_i = RATE_SHA3_512 >> 3;
         bytes_squeezed_i = 0;
         #1;
 
@@ -237,6 +243,7 @@ module keccak_output_unit_tb ();
         $display("\nTC5: SHAKE128 Infinite (Last = 0)");
         keccak_mode_i    = SHAKE128;
         rate_i           = RATE_SHAKE128;
+        max_bytes_absorbed_i = RATE_SHAKE128 >> 3;
         bytes_squeezed_i = 0;
         #1;
 
@@ -256,10 +263,11 @@ module keccak_output_unit_tb ();
         $display("\nTC6: SHAKE128 Bounded Length Reached");
         keccak_mode_i          = SHAKE128;
         rate_i                 = RATE_SHAKE128;
+        max_bytes_absorbed_i   = RATE_SHAKE128 >> 3;
         bytes_squeezed_i       = 32;
         xof_len_i              = 34; // user requested 34 bytes
         is_xof_fixed_len_i     = 1;
-        total_bytes_squeezed_i = 32; // we have output 32 so far
+        xof_remaining_i        = 2;  // 34 - 32
         #1;
 
         for(i=0; i<8; i++) exp_data_build[i*8 +: 8] = (i+32);
@@ -274,10 +282,11 @@ module keccak_output_unit_tb ();
         $display("\nTC7: SHAKE128 Bounded Length Not Reached");
         keccak_mode_i          = SHAKE128;
         rate_i                 = RATE_SHAKE128;
+        max_bytes_absorbed_i   = RATE_SHAKE128 >> 3;
         bytes_squeezed_i       = 32;
         xof_len_i              = 68;
         is_xof_fixed_len_i     = 1;
-        total_bytes_squeezed_i = 32;
+        xof_remaining_i        = 36; // 68 - 32
         #1;
 
         for(i=0; i<8; i++) exp_data_build[i*8 +: 8] = (i+32);
