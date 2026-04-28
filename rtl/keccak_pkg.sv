@@ -1,4 +1,6 @@
 package keccak_pkg;
+    import qrem_global_pkg::*;
+
     // Misc. Bit Sizes
     parameter int BYTE_SIZE = 8;
 
@@ -13,7 +15,7 @@ package keccak_pkg;
     parameter int L_SIZE = 7;
 
     // Keccak Structure
-    parameter int DWIDTH = 64; // Input data is 8 bytes
+    parameter int DWIDTH = qrem_global_pkg::DWIDTH; // Input data is 8 bytes
     parameter int DATA_BYTE_NUM = DWIDTH/8;
     parameter int KEEP_WIDTH = DWIDTH/8; // 1 bit for every data byte
     parameter int X_WIDTH = $clog2(ROW_SIZE);

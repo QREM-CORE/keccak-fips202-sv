@@ -1,6 +1,8 @@
+# --- Submodules ---
+-f lib/common-rtl/rtl.f
+
 # --- Packages (Must be compiled first) ---
 rtl/keccak_pkg.sv
-
 
 # --- Keccak Step Modules ---
 rtl/chi_step.sv
