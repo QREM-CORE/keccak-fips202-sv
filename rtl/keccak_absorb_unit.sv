@@ -16,9 +16,12 @@
 `timescale 1ns / 1ps
 
 import keccak_pkg::*;
+import qrem_global_pkg::*;
 
 // Compute state array after absorption
-module keccak_absorb_unit (
+module keccak_absorb_unit #(
+    parameter int KEEP_WIDTH = DWIDTH/8
+) (
     input   wire  [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] state_array_i,
     input   wire  [RATE_WIDTH-1:0]          rate_i,
     input   wire  [BYTE_ABSORB_WIDTH-1:0]   bytes_absorbed_i,

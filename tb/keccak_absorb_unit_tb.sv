@@ -4,10 +4,12 @@
 `timescale 1ns/1ps
 
 import keccak_pkg::*;
+import qrem_global_pkg::*;
 
 module keccak_absorb_unit_tb ();
 
     //Parameters & Constants
+    localparam int KEEP_WIDTH     = DWIDTH / 8;
     localparam int RATE_SHA3_256 = 1088;    // 136 Bytes (17 Lanes)
     localparam int RATE_SHA3_512 = 576;     // 72  Bytes (9 Lanes)
     localparam int RATE_SHAKE256 = 1088;    // 136 Bytes (17 Lanes)

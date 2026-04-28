@@ -31,8 +31,11 @@
 `timescale 1ns / 1ps
 
 import keccak_pkg::*;
+import qrem_global_pkg::*;
 
-module keccak_core (
+module keccak_core #(
+    parameter int KEEP_WIDTH = DWIDTH/8
+)(
     input   wire                            clk,
     input   wire                            rst,
 
