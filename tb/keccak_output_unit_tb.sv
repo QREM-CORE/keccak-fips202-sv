@@ -4,6 +4,7 @@
 `timescale 1ns/1ps
 
 import keccak_pkg::*;
+import qrem_global_pkg::*;
 
 module keccak_output_unit_tb ();
 

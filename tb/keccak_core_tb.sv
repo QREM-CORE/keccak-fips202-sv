@@ -6,6 +6,7 @@
 `timescale 1ns/1ps
 
 import keccak_pkg::*;
+import qrem_global_pkg::*;
 
 module keccak_core_tb;
 
@@ -18,6 +19,7 @@ module keccak_core_tb;
     localparam time TIMEOUT_LIMIT = 500_000;
 
     // Derived from Package
+    localparam int KEEP_WIDTH     = DWIDTH / 8;
     localparam int BYTES_PER_BEAT = DWIDTH / 8;
 
     logic clk;

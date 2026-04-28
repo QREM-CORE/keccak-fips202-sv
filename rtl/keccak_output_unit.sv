@@ -17,6 +17,7 @@
 `timescale 1ns / 1ps
 
 import keccak_pkg::*;
+import qrem_global_pkg::*;
 
 module keccak_output_unit (
     input  logic [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] state_array_i,
