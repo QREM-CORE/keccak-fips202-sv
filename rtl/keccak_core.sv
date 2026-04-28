@@ -129,6 +129,7 @@ module keccak_core (
 
     // Keccak Parameter Setup Registers
     reg [RATE_WIDTH-1:0]            rate; // Rate in BITS (e.g., 1088 for SHA3-256)
+    reg [BYTE_ABSORB_WIDTH-1:0]     max_bytes_absorbed_r; // Phase 2: Registered LTP opt
     reg [SUFFIX_WIDTH-1:0]          suffix;
 
     // Keccak Mode Register
@@ -145,7 +146,7 @@ module keccak_core (
     // Squeeze Signals
     logic   [BYTE_ABSORB_WIDTH-1:0] bytes_squeezed;
     logic   [XOF_LEN_WIDTH-1:0]     total_bytes_squeezed;
-    logic   [5:0]                   bytes_in_this_beat; // Max 8 bytes (previously 32)
+    logic   [5:0]                   bytes_in_this_beat; // Popcount of m_axis_tkeep
 
     // 1C. Enable Wires
     // ----------------------------------------------------------
@@ -211,19 +212,17 @@ module keccak_core (
     wire                            KOU_PERM_NEEDED_O;
     wire [DWIDTH-1:0]               KOU_DATA_O;
     wire [KEEP_WIDTH-1:0]           KOU_KEEP_O;
+    wire [3:0]                      KOU_BYTE_COUNT_O; // Phase 2: Direct count pass
     wire                            KOU_LAST_O;
 
     // 1E. Wire Assignments
     // ----------------------------------------------------------
 
-    // Max Byte Absorb Value
-    logic [RATE_WIDTH-1:0] max_bytes_absorbed;
-    assign max_bytes_absorbed   = rate >> 3;
-
-    // Calculate Ready
-    // We are ready if we aren't full and aren't done.
+    // Phase 2 Optimization: Use registered max_bytes_absorbed to break configuration-to-logic
+    // combinatorial path (LTP bottleneck).
     logic internal_ready;
-    assign internal_ready = (bytes_absorbed != max_bytes_absorbed) &&
+    // We are ready if we aren't full and haven't finished message.
+    assign internal_ready = (bytes_absorbed != max_bytes_absorbed_r) &&
                             (!msg_received);
 
     // ==========================================================
@@ -297,6 +296,7 @@ module keccak_core (
         .squeeze_perm_needed_o  (KOU_PERM_NEEDED_O),
         .data_o                 (KOU_DATA_O),
         .keep_o                 (KOU_KEEP_O),
+        .byte_count_o           (KOU_BYTE_COUNT_O),
         .last_o                 (KOU_LAST_O)
     );
     assign KOU_STATE_ARRAY_I          = state_array;
@@ -337,7 +337,7 @@ module keccak_core (
 
             STATE_ABSORB : begin
                 // PRIORITY 1: If current rate block is full, run permutation
-                if (bytes_absorbed == max_bytes_absorbed) begin
+                if (bytes_absorbed == max_bytes_absorbed_r) begin
                     next_state = STATE_PERMUTE;
 
                 // PRIORITY 2: Message fully received, move on to padding stage
@@ -449,7 +449,7 @@ module keccak_core (
                 t_ready_o = internal_ready;
 
                 // PRIORITY 1: If current rate block is full, run permutation
-                if (bytes_absorbed == max_bytes_absorbed) begin
+                if (bytes_absorbed == max_bytes_absorbed_r) begin
                     perm_en = 1'b1;
 
                 // PRIORITY 2: Message fully received, move on to padding stage
@@ -527,11 +527,9 @@ module keccak_core (
             end
         endcase
 
-        // Calculate bytes in this beat (popcount of t_keep_o) at the END of the combinational block
-        bytes_in_this_beat = '0;
-        for (int i = 0; i < KEEP_WIDTH; i++) begin
-            if (t_keep_o[i]) bytes_in_this_beat = bytes_in_this_beat + 1'b1;
-        end
+        // Phase 2 Optimization: Bypass redundant popcount loop by using
+        // direct count from Output Unit (KOU).
+        bytes_in_this_beat = {2'b00, KOU_BYTE_COUNT_O};
     end
 
     // ==========================================================
@@ -557,6 +555,7 @@ module keccak_core (
                 target_xof_len   <= xof_len_i;
                 is_xof_fixed_len <= (xof_len_i != 0);
                 rate             <= KPU_RATE_O;
+                max_bytes_absorbed_r <= KPU_RATE_O >> 3; // Phase 2: Register config-derived value
                 suffix           <= KPU_SUFFIX_O;
 
                 // 2. CRITICAL: Wipe the State Logic

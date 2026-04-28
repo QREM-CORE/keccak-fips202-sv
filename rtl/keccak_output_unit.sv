@@ -31,6 +31,7 @@ module keccak_output_unit (
     output logic                            squeeze_perm_needed_o, // Flag: Rate is empty!
     output logic [DWIDTH-1:0]               data_o,                // 64 Bits
     output logic [DWIDTH/8-1:0]             keep_o,                // Valid bytes
+    output logic [3:0]                      byte_count_o,          // Phase 2: Direct count pass
     output logic                            last_o                 // End of Hash
 );
     // ==========================================================
@@ -130,6 +131,7 @@ module keccak_output_unit (
                 output_bytes_this_cycle = diff[5:0];
             end
         end
+        byte_count_o = output_bytes_this_cycle[3:0];
     end
 
     always_comb begin
