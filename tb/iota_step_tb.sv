@@ -10,30 +10,15 @@ module iota_step_tb();
 
     // DUT signals
     logic [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] state_i;
-    logic [ROUND_INDEX_SIZE-1:0]                       i_r;
+    logic [LANE_SIZE-1:0]                             rc_i;
     logic [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] state_o;
 
     // Instantiate DUT
     iota_step dut (
-        .state_array_i (state_i),
-        .round_index_i (i_r),
-        .state_array_o (state_o)
+        .state_array_i    (state_i),
+        .round_constant_i (rc_i),
+        .state_array_o    (state_o)
     );
-
-    // ==========================================================
-    // "Golden" Round Constants (Moved to Module Level)
-    // ==========================================================
-    // Moved out of 'initial' block to fix declaration order and static lifetime issues.
-    localparam logic [LANE_SIZE-1:0] RCs [MAX_ROUNDS] = '{
-        64'h0000000000000001, 64'h0000000000008082, 64'h800000000000808A,
-        64'h8000000080008000, 64'h000000000000808B, 64'h0000000080000001,
-        64'h8000000080008081, 64'h8000000000008009, 64'h000000000000008A,
-        64'h0000000000000088, 64'h0000000080008009, 64'h000000008000000A,
-        64'h000000008000808B, 64'h800000000000008B, 64'h8000000000008089,
-        64'h8000000000008003, 64'h8000000000008002, 64'h8000000000000080,
-        64'h000000000000800A, 64'h800000008000000A, 64'h8000000080008081,
-        64'h8000000000008080, 64'h0000000080000001, 64'h8000000080008008
-    };
 
     // ==========================================================
     // Task: Initialize State with unique pattern
@@ -105,28 +90,29 @@ module iota_step_tb();
         // ================================
         init_state(); // Fill with pattern
         state_i[0][0] = 64'h0; // Clear lane 0 for easy reading
-        i_r = 0;
+        rc_i = KECCAK_ROUND_CONSTANTS[0];
         #1;
-        check_result(i_r, RCs[i_r]);
+        check_result(0, rc_i);
 
         // ================================
         // Test 2: Round 1 (With Data)
         // ================================
         init_state();
         state_i[0][0] = 64'hAAAAAAAAAAAAAAAA; // Test XOR logic
-        i_r = 1;
+        rc_i = KECCAK_ROUND_CONSTANTS[1];
         #1;
-        check_result(i_r, RCs[i_r]);
+        check_result(1, rc_i);
 
         // ================================
         // Test 3: Round 23 (Max Constant)
         // ================================
         init_state();
         state_i[0][0] = 64'h0;
-        i_r = 23;
+        rc_i = KECCAK_ROUND_CONSTANTS[23];
         #1;
-        check_result(i_r, RCs[i_r]);
+        check_result(23, rc_i);
 
+        $display("DONE: Iota Step verification successful.");
         $finish;
     end
 

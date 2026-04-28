@@ -125,6 +125,7 @@ module keccak_core (
 
     // KSU Permutation Registers
     reg [ROUND_INDEX_SIZE-1:0]      round_idx;
+    reg [LANE_SIZE-1:0]             round_constant_r;
 
     // Keccak Parameter Setup Registers
     reg [RATE_WIDTH-1:0]            rate; // Rate in BITS (e.g., 1088 for SHA3-256)
@@ -179,7 +180,7 @@ module keccak_core (
     // Keccak Step Unit (KSU) Module Wires
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KSU_STATE_ARRAY_I;
     wire                            KSU_PERM_EN_I;
-    wire [ROUND_INDEX_SIZE-1:0]     KSU_ROUND_INDEX_I;
+    wire [LANE_SIZE-1:0]            KSU_ROUND_CONST_I;
 
     wire [ROW_SIZE-1:0][COL_SIZE-1:0][LANE_SIZE-1:0] KSU_STATE_ARRAY_O;
 
@@ -246,13 +247,13 @@ module keccak_core (
     keccak_step_unit KSU (
         .state_array_i  (KSU_STATE_ARRAY_I),
         .perm_en_i      (KSU_PERM_EN_I),
-        .round_index_i  (KSU_ROUND_INDEX_I),
+        .round_constant_i(KSU_ROUND_CONST_I),
 
         .state_array_o  (KSU_STATE_ARRAY_O)
     );
     assign KSU_STATE_ARRAY_I    = state_array;
     assign KSU_PERM_EN_I        = (state == STATE_PERMUTE);
-    assign KSU_ROUND_INDEX_I    = round_idx;
+    assign KSU_ROUND_CONST_I    = round_constant_r;
 
     // 2C. KECCAK ABSORB UNIT (KAU) (Now handles Optional Padding)
     // ----------------------------------------------------------
@@ -569,6 +570,7 @@ module keccak_core (
                 absorb_done      <= '0;
 
                 round_idx        <= '0;
+                round_constant_r <= KECCAK_ROUND_CONSTANTS[0];
 
             // Reset bytes absorbed after absorb permutation
             end else if (perm_en) begin
@@ -603,8 +605,10 @@ module keccak_core (
             // --- Permutation Round Control ---
             if (rst_round_idx_en) begin
                 round_idx <= 'b0;
+                round_constant_r <= KECCAK_ROUND_CONSTANTS[0];
             end else if (inc_round_idx_en) begin
                 round_idx <= round_idx + 'b1;
+                round_constant_r <= KECCAK_ROUND_CONSTANTS[round_idx + 1];
             end
 
             // --- Squeeze Counters ---
