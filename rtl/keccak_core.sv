@@ -206,7 +206,8 @@ module keccak_core (
     wire [BYTE_ABSORB_WIDTH-1:0]    KOU_BYTES_SQUEEZED_I;
     wire [XOF_LEN_WIDTH-1:0]        KOU_XOF_LEN_I;
     wire                            KOU_IS_XOF_FIXED_LEN_I;
-    wire [XOF_LEN_WIDTH-1:0]        KOU_TOTAL_BYTES_SQUEEZED_I;
+    wire [XOF_LEN_WIDTH-1:0]        KOU_XOF_REMAINING_I;
+    wire [BYTE_ABSORB_WIDTH-1:0]    KOU_MAX_BYTES_ABSORBED_I;
 
     wire [BYTE_ABSORB_WIDTH-1:0]    KOU_BYTES_SQUEEZED_O;
     wire                            KOU_PERM_NEEDED_O;
@@ -217,9 +218,6 @@ module keccak_core (
 
     // 1E. Wire Assignments
     // ----------------------------------------------------------
-
-    // Phase 2 Optimization: Use registered max_bytes_absorbed to break configuration-to-logic
-    // combinatorial path (LTP bottleneck).
     logic internal_ready;
     // We are ready if we aren't full and haven't finished message.
     assign internal_ready = (bytes_absorbed != max_bytes_absorbed_r) &&
@@ -290,8 +288,8 @@ module keccak_core (
         .bytes_squeezed_i       (KOU_BYTES_SQUEEZED_I),
         .xof_len_i              (KOU_XOF_LEN_I),
         .is_xof_fixed_len_i     (KOU_IS_XOF_FIXED_LEN_I),
-        .xof_remaining_i        (xof_remaining_r),
-        .max_bytes_absorbed_i   (max_bytes_absorbed_r),
+        .xof_remaining_i        (KOU_XOF_REMAINING_I),
+        .max_bytes_absorbed_i   (KOU_MAX_BYTES_ABSORBED_I),
 
         .bytes_squeezed_o       (KOU_BYTES_SQUEEZED_O),
         .squeeze_perm_needed_o  (KOU_PERM_NEEDED_O),
@@ -306,6 +304,8 @@ module keccak_core (
     assign KOU_BYTES_SQUEEZED_I       = bytes_squeezed;
     assign KOU_XOF_LEN_I              = target_xof_len;
     assign KOU_IS_XOF_FIXED_LEN_I     = is_xof_fixed_len;
+    assign KOU_XOF_REMAINING_I        = xof_remaining_r;
+    assign KOU_MAX_BYTES_ABSORBED_I   = max_bytes_absorbed_r;
 
     // ==========================================================
     // 3. 3-PROCESS CONTROL FSM
@@ -527,8 +527,7 @@ module keccak_core (
             end
         endcase
 
-        // Phase 2 Optimization: Bypass redundant popcount loop by using
-        // direct count from Output Unit (KOU).
+        // Bypass redundant popcount loop by using direct count from Output Unit (KOU).
         bytes_in_this_beat = {2'b00, KOU_BYTE_COUNT_O};
     end
 
