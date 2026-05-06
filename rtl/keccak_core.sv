@@ -508,6 +508,7 @@ module keccak_core #(
                 end else if (t_ready_i) begin
                     // A. Check Fixed Hash Done (SHA3-*)
                     if (KOU_LAST_O) begin
+                        init_wr_en = 1'b1; // Return to IDLE; prevents FSM stuck-in-squeeze
 
                     // B. Check Rate Empty -> Re-Permute (SHAKE)
                     end else if (KOU_PERM_NEEDED_O) begin
